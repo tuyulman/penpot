@@ -50,5 +50,27 @@
        [:& defs/svg-defs   {:shape shape :render-id render-id}]
        [:& filters/filters {:shape shape :filter-id filter-id}]
        [:& grad/gradient   {:shape shape :attr :fill-color-gradient}]
-       [:& grad/gradient   {:shape shape :attr :stroke-color-gradient}]]
+       [:& grad/gradient   {:shape shape :attr :stroke-color-gradient}]
+
+       ;; POC Backdrop-blur
+       (when (= (:id shape) #uuid "2723bb80-7dc3-11eb-9fd3-a37576bb6aed")
+         [:*
+          ;; Clip with the element doing the blurring
+          [:clipPath {:id (str "clip-" render-id)} children]
+
+          ;; Bluring the background element
+          [:filter {:id (str "blur-" render-id) :width "120%" :height "120%" :x "-10%" :y "-10%"}
+           [:feFlood {:flood-color "rgb(232, 233, 234)" :result "background"}]
+           [:feGaussianBlur {:in "SourceGraphic" :stdDeviation 10 :result "blur"}]
+           [:feMerge
+            [:feMergeNode {:in "background"}]
+            [:feMergeNode {:in "blur"}]]]])]
+
+      (when (= (:id shape) #uuid "2723bb80-7dc3-11eb-9fd3-a37576bb6aed")
+        ;; We have to retrieve all the shapes that are "behind" for the current frame
+        [:use
+         {:xlinkHref "#shape-25a7c9e0-7dc3-11eb-9fd3-a37576bb6aed"
+          :filter (str "url(#blur-" render-id  ")") 
+          :clip-path (str "url(#clip-" render-id ")")}])
+
       children]]))

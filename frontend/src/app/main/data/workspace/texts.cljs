@@ -11,10 +11,13 @@
   (:require
    ["slate" :as slate :refer [Editor Node Transforms Text]]
    ["slate-react" :as rslate]
+
+   ["draft-js" :as draft]
    [app.common.math :as mth]
    [app.common.attrs :as attrs]
    [app.common.geom.shapes :as gsh]
    [app.common.pages :as cp]
+   [app.common.data :as d]
    [app.main.data.workspace.common :as dwc]
    [app.main.data.workspace.transforms :as dwt]
    [app.main.fonts :as fonts]
@@ -26,18 +29,78 @@
    [goog.object :as gobj]
    [potok.core :as ptk]))
 
-(defn create-editor
-  []
-  (rslate/withReact (slate/createEditor)))
+(js/console.log draft)
 
-(defn assign-editor
-  [id editor]
-  (ptk/reify ::assign-editor
+;; (defn create-editor
+;;   []
+;;   (rslate/withReact (slate/createEditor)))
+
+;; (defn assign-editor
+;;   [id editor]
+;;   (ptk/reify ::assign-editor
+;;     ptk/UpdateEvent
+;;     (update [_ state]
+;;       (-> state
+;;           (assoc-in [:workspace-local :editors id] editor)
+;;           (update-in [:workspace-local :editor-n] (fnil inc 0))))))
+
+
+(defn update-editor-state
+  [estate]
+  (ptk/reify ::update-editor-state
     ptk/UpdateEvent
     (update [_ state]
-      (-> state
-          (assoc-in [:workspace-local :editors id] editor)
-          (update-in [:workspace-local :editor-n] (fnil inc 0))))))
+      (if (some? estate)
+        (assoc state :workspace-editor estate)
+        (dissoc state :workspace-editor)))))
+
+
+(defn initialize-editor-state
+  [{:keys [id content2] :as shape}]
+  (ptk/reify ::initialize-editor-state
+    ptk/UpdateEvent
+    (update [_ state]
+      (update state :workspace-editor
+              (fn [_]
+                (if content2
+                  (->> (draft/convertFromRaw (clj->js content2))
+                       (.createWithContent ^js draft/EditorState))
+                  (.createEmpty ^js draft/EditorState)))))))
+
+(defn finalize-editor-state
+  [{:keys [id content2] :as shape}]
+  (ptk/reify ::update-editor-state
+    ptk/WatchEvent
+    (watch [_ state stream]
+      (let [estate  (:workspace-editor state)
+            content (-> (.getCurrentContent estate)
+                        (draft/convertToRaw)
+                        (js->clj :keywordize-keys true))]
+        (rx/merge
+         (rx/of (update-editor-state nil))
+         (when (not= content2 content)
+           (rx/of (dwc/update-shapes [id] #(assoc % :content2 content)))))))))
+
+(defn editor-select-all
+  []
+  (letfn [(select-all [state]
+            (let [content (.getCurrentContent ^js state)
+                  fblock  (.. ^js content (getBlockMap) (first))
+                  lblock  (.. ^js content (getBlockMap) (last))
+                  fbk     (.getKey ^js fblock)
+                  lbk     (.getKey ^js lblock)
+                  lbl     (.getLength ^js lblock)
+                  selection (draft/SelectionState.
+                             #js {:anchorKey fbk
+                                  :anchorOffset 0
+                                  :focusKey lbk
+                                  :focusOffset lbl})]
+              (.forceSelection ^js draft/EditorState state selection)))]
+    (ptk/reify ::editor-select-all
+      ptk/UpdateEvent
+      (update [_ state]
+        (d/update-when state :workspace-editor select-all)))))
+
 
 ;; --- Helpers
 
@@ -52,12 +115,12 @@
          :focus #js {:path #js [0 0 (dec (alength paragraphs))]
                      :offset (alength lastptxt)}}))
 
-(defn- editor-select-all!
-  [editor]
-  (let [children   (obj/get editor "children")
-        paragraphs (obj/get-in children [0 "children" 0 "children"])
-        range      (calculate-full-selection editor)]
-    (.select Transforms editor range)))
+;; (defn- editor-select-all!
+;;   [editor]
+;;   (let [children   (obj/get editor "children")
+;;         paragraphs (obj/get-in children [0 "children" 0 "children"])
+;;         range      (calculate-full-selection editor)]
+;;     (.select Transforms editor range)))
 
 (defn- editor-set!
   ([editor props]

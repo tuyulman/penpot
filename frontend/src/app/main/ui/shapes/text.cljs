@@ -21,6 +21,63 @@
    [app.main.ui.shapes.text.embed :as ste]
    [app.util.perf :as perf]))
 
+
+;; --- NEW RENDER IMPL
+
+(defn get-sections
+  [{:keys [text] :as block}]
+  (let [ranges (map (fn [range]
+                      (assoc range :type :entity))
+                    (:entityRanges block))]
+    ;; TODO: sort ranges
+    (loop [ranges (seq ranges)
+           result []
+           offset 0]
+      (if-let [item (first ranges)]
+        (recur (rest ranges)
+               (cond-> result
+                 (> (:offset item) offset)
+                 (as-> $ (let [start offset
+                               end   (:offset item)]
+                           (conj $ {:start start
+                                    :end   end
+                                    :text  (subs text start (+ start end))})))
+
+                 :always
+                 (as-> $ (let [start (:offset item)
+                               end   (+ start (:length item))]
+                           (conj $ {:start start
+                                    :end   end
+                                    :text  (subs text start (+ start end))
+                                    :ekey  (:key item)
+                                    :type  (:type item)}))))
+               (+ (:offset item) (:length item)))
+
+        (cond-> result
+          (< offset (count text))
+          (as-> $ (let [start offset
+                        end   (count text)]
+                    (conj $ {:start start
+                             :end   end
+                             :text  (subs text start (+ start end))}))))))))
+
+(defn get-section-markup
+  [section]
+  (mf/create-element "span" #js {} #js [(:text section)]))
+
+(defn get-block-inline-markup
+  [block entities]
+  (let [sections (get-sections block)]
+    (for [item sections]
+      (get-section-markup item))))
+
+(defn get-block-markup
+  [block entities]
+  (mf/create-element "div" #js {:dir "auto"}
+                     (into-array (get-block-inline-markup block entities))))
+
+;; --- OLD RENDER IMPL
+
 (mf/defc render-text
   {::mf/wrap-props false}
   [props]
@@ -64,6 +121,7 @@
     [:p.paragraph {:style style} children]))
 
 ;; -- Text nodes
+
 (mf/defc render-node
   {::mf/wrap-props false}
   [props]
@@ -90,13 +148,18 @@
 (mf/defc text-content
   {::mf/wrap-props false}
   [props]
-  (let [root (obj/get props "content")
-        shape (obj/get props "shape")
+  (let [root         (obj/get props "content")
+        shape        (obj/get props "shape")
         embed-fonts? (obj/get props "embed-fonts?")]
-    [:& render-node {:index 0
-                     :node root
-                     :shape shape
-                     :embed-fonts? embed-fonts?}]))
+
+    [:div.rich-text
+     (for [block (get-in shape [:content2 :blocks])]
+       (get-block-markup block nil))]))
+
+    ;; #_[:& render-node {:index 0
+    ;;                  :node root
+    ;;                  :shape shape
+    ;;                  :embed-fonts? embed-fonts?}]))
 
 (defn- retrieve-colors
   [shape]
@@ -117,7 +180,8 @@
         embed-fonts? (mf/use-ctx muc/embed-ctx)
         {:keys [id x y width height content]} shape
         ;; We add 8px to add a padding for the exporter
-        width (+ width 8)]
+        ;; width (+ width 8)
+        ]
     [:foreignObject {:x x
                      :y y
                      :id (:id shape)

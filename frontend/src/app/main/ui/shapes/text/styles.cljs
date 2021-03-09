@@ -163,3 +163,75 @@
 
 
      base)))
+
+
+(defn generate-text-styles*
+  [data]
+  (let [data            (cond-> data (map? data) (clj->js))
+        letter-spacing  (obj/get data "letter-spacing")
+        text-decoration (obj/get data "text-decoration")
+        text-transform  (obj/get data "text-transform")
+        line-height     (obj/get data "line-height")
+
+        font-id         (obj/get data "font-id" (:font-id ut/default-text-attrs))
+        font-variant-id (obj/get data "font-variant-id")
+
+        font-family     (obj/get data "font-family")
+        font-size       (obj/get data "font-size")
+
+        ;; Old properties for backwards compatibility
+        fill            (obj/get data "fill")
+        opacity         (obj/get data "opacity" 1)
+
+        fill-color (obj/get data "fill-color" fill)
+        fill-opacity (obj/get data "fill-opacity" opacity)
+        fill-color-gradient (obj/get data "fill-color-gradient" nil)
+        fill-color-gradient (when fill-color-gradient
+                              (-> (js->clj fill-color-gradient :keywordize-keys true)
+                                  (update :type keyword)))
+
+        ;; Uncomment this to allow to remove text colors. This could break the texts that already exist
+        ;;[r g b a] (if (nil? fill-color)
+        ;;            [0 0 0 0] ;; Transparent color
+        ;;            (uc/hex->rgba fill-color fill-opacity))
+
+        [r g b a] (uc/hex->rgba fill-color fill-opacity)
+
+        text-color (if fill-color-gradient
+                     (uc/gradient->css (js->clj fill-color-gradient))
+                     (str/format "rgba(%s, %s, %s, %s)" r g b a))
+
+        fontsdb (deref fonts/fontsdb)
+
+        base #js {:textDecoration text-decoration
+                  :textTransform text-transform
+                  :lineHeight (or line-height "inherit")
+                  :color text-color
+                  "--text-color" text-color}]
+
+    (when (and (string? letter-spacing)
+               (pos? (alength letter-spacing)))
+      (obj/set! base "letterSpacing" (str letter-spacing "px")))
+
+    (when (and (string? font-size)
+               (pos? (alength font-size)))
+      (obj/set! base "fontSize" (str font-size "px")))
+
+    (when (and (string? font-id)
+               (pos? (alength font-id)))
+      (fonts/ensure-loaded! font-id)
+      (let [font (get fontsdb font-id)]
+        (let [font-family (or (:family font)
+                              (obj/get data "fontFamily"))
+              font-variant (d/seek #(= font-variant-id (:id %))
+                                   (:variants font))
+              font-style  (or (:style font-variant)
+                              (obj/get data "fontStyle"))
+              font-weight (or (:weight font-variant)
+                              (obj/get data "fontWeight"))]
+          (obj/set! base "fontFamily" font-family)
+          (obj/set! base "fontStyle" font-style)
+          (obj/set! base "fontWeight" font-weight))))
+
+
+    base))

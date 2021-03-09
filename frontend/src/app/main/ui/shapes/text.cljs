@@ -25,63 +25,63 @@
 ;; --- NEW RENDER IMPL
 
 (defn get-sections
-  [{:keys [text] :as block}]
-  (let [ranges (map (fn [range]
-                      (assoc range :type :entity))
-                    (:entityRanges block))]
-    ;; TODO: sort ranges
-    (loop [ranges (seq ranges)
-           result []
-           offset 0]
-      (if-let [item (first ranges)]
-        (recur (rest ranges)
-               (cond-> result
-                 (> (:offset item) offset)
-                 (as-> $ (let [start offset
-                               end   (:offset item)]
-                           (conj $ {:start start
-                                    :end   end
-                                    :text  (subs text start (+ start end))})))
+  [{:keys [text entityRanges] :as block}]
+  ;; TODO: sort ranges
+  ;; TODO: use transients
+  (loop [ranges (seq entityRanges)
+         result []
+         offset 0]
+    (if-let [item (first ranges)]
+      (recur (rest ranges)
+             (cond-> result
+               (> (get item :offset) offset)
+               (as-> $ (let [start offset
+                             end   (get item :offset)]
+                         (conj $ {:start start
+                                  :end   end
+                                  :text  (subs text start (+ start end))})))
 
-                 :always
-                 (as-> $ (let [start (:offset item)
-                               end   (+ start (:length item))]
-                           (conj $ {:start start
-                                    :end   end
-                                    :text  (subs text start (+ start end))
-                                    :ekey  (:key item)
-                                    :type  (:type item)}))))
-               (+ (:offset item) (:length item)))
+               :always
+               (as-> $ (let [start (get item :offset)
+                             end   (+ start (get item :length))]
+                         (conj $ {:start  start
+                                  :end    end
+                                  :text   (subs text start (+ start end))
+                                  :entity (keyword (str (get item :key)))}))))
 
-        (cond-> result
-          (< offset (count text))
-          (as-> $ (let [start offset
-                        end   (count text)]
-                    (conj $ {:start start
-                             :end   end
-                             :text  (subs text start (+ start end))}))))))))
+             (+ (get item :offset) (get item :length)))
+
+      (cond-> result
+        (< offset (count text))
+        (as-> $ (let [start offset
+                      end   (count text)]
+                  (conj $ {:start start
+                           :end   end
+                           :text  (subs text start (+ start end))})))))))
 
 (defn get-section-markup
   [section]
   (mf/create-element "span" #js {} #js [(:text section)]))
 
 (defn get-entity-markup
-  [section data]
-  (prn "get-entity-markup" data)
-  (mf/create-element "span" #js {} #js [(:text section)]))
+  [section entity]
+  ;; (prn "get-entity-markup" entity)
+  (let [style (sts/generate-text-styles* (get entity :data))]
+    (mf/create-element "span" #js {:style style} #js [(:text section)])))
 
 (defn get-block-inline-markup
   [shape block entities]
   (let [sections (get-sections block)]
+    ;; (prn "get-block-inline-markup" sections)
     (for [item sections]
-      (if (= :entity (:type item))
-        (get-entity-markup item (get entities (:ekey item)))
+      (if-let [key (:entity item)]
+        (get-entity-markup item (get entities key))
         (get-section-markup item)))))
 
 (defn get-block-markup
   [shape block entities]
-  (prn "get-block-markup" entities)
-  (let [style (sts/generate-paragraph-styles* shape (:data block))]
+  (let [data  (get block :data)
+        style (sts/generate-paragraph-styles* shape data)]
     (mf/create-element "div" #js {:dir "auto" :style style}
                        (into-array (get-block-inline-markup shape block entities)))))
 
@@ -90,9 +90,12 @@
   [props]
   (let [shape    (obj/get props "shape")
         content  (:content2 shape)
-        entities (:entityMap content)   ; TODO: rename?
+        entities (get content :entityMap)
+        blocks   (get content :blocks)
         embed?   (obj/get props "embed-fonts?")
         style    (sts/generate-root-styles* shape)]
+
+
 
     [:div.rich-text
      {:style style
@@ -102,7 +105,7 @@
       ;; TODO
       #_(when embed-fonts?
           [ste/embed-fontfaces-style {:content root}])
-      (for [block (:blocks content)]
+      (for [block blocks]
         (get-block-markup shape block entities))]]))
 
 ;; TODO

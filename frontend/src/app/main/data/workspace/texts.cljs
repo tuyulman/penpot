@@ -63,7 +63,8 @@
       (update state :workspace-editor
               (fn [_]
                 (if content2
-                  (->> (draft/convertFromRaw (clj->js content2))
+                  (->> (clj->js content2)
+                       (draft/convertFromRaw)
                        (.createWithContent ^js draft/EditorState))
                   (.createEmpty ^js draft/EditorState)))))))
 
@@ -294,8 +295,6 @@
     (update [_ state]
       (prn "update-paragraph-attrs" attrs)
       (update state :workspace-editor editor-update-block attrs))))
-
-
 
 
 

@@ -21,11 +21,9 @@
 
 (mf/defc options
   [{:keys [shape] :as props}]
-  (let [ids [(:id shape)]
-        type (:type shape)
-
-        editors (mf/deref refs/editors)
-        editor (get editors (:id shape))
+  (let [ids    [(:id shape)]
+        type   (:type shape)
+        editor (mf/deref refs/workspace-editor)
 
         measure-values (select-keys shape measure-attrs)
 
@@ -43,16 +41,18 @@
 
 
         text-values (merge
-                     (select-keys shape [:grow-type])
-                     (dwt/current-root-values
+                     (select-keys shape [:grow-type :vertical-align :text-align])
+                     #_(dwt/current-root-values
                       {:editor editor :shape shape
                        :attrs root-attrs})
-                     (dwt/current-text-values
+                     (dwt/current-paragraph-values
                       {:editor editor :shape shape
                        :attrs paragraph-attrs})
                      (dwt/current-text-values
                       {:editor editor :shape shape
                        :attrs text-attrs}))]
+
+    (prn "KAKAKA" text-attrs)
 
     [:*
      [:& measures-menu {:ids ids

@@ -142,6 +142,15 @@
 ;;   (mf/html
 ;;    [:> editor-text-node props]))
 
+(mf/defc entity-component
+  {::mf/wrap-props false}
+  [props]
+  (let [children (obj/get props "children")
+        content  (obj/get props "contentState")
+        entity   (.getEntity ^js content (obj/get props "entityKey"))
+        style    (sts/generate-text-styles* (.getData entity))]
+    [:span {:style style} children]))
+
 (mf/defc block-component
   {::mf/wrap-props false}
   [props]
@@ -153,9 +162,6 @@
      [:> draft/EditorBlock props]]))
 
 ;; --- Text Shape Edit
-
-(def empty-editor-state
-  (.createEmpty ^js draft/EditorState))
 
 (defn render-block
   [block shape]
@@ -169,6 +175,24 @@
            :props #js {:data (.toJS data)
                        :shape shape}}
       nil)))
+
+(defn find-penpot-entities
+  [block callback content]
+  (.findEntityRanges ^js block
+                     (fn [cmeta]
+                       (let [ekey (.getEntity ^js cmeta)]
+                         (boolean
+                          (and (some? ekey)
+                               (= "PENPOT" (.. ^js content (getEntity ekey) (getType)))))))
+                     callback))
+
+(def default-decorator
+  (draft/CompositeDecorator.
+   #js [#js {:strategy find-penpot-entities
+             :component entity-component}]))
+
+(def empty-editor-state
+  (.createEmpty ^js draft/EditorState default-decorator))
 
 (mf/defc text-shape-edit-html
   {::mf/wrap [mf/memo]
@@ -237,8 +261,8 @@
           (let [keys [(events/listen js/document EventType.MOUSEDOWN on-click-outside)
                       (events/listen js/document EventType.CLICK on-click-outside)
                       (events/listen js/document EventType.KEYUP on-key-up)]]
-            (st/emit! (dwt/initialize-editor-state shape)
-                      (dwt/editor-select-all))
+            (st/emit! (dwt/initialize-editor-state shape default-decorator)
+                      (dwt/select-all))
             #(do
                (st/emit! (dwt/finalize-editor-state shape))
                (doseq [key keys]

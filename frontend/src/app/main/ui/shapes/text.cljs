@@ -28,7 +28,9 @@
   [{:keys [text entityRanges] :as block}]
   ;; TODO: sort ranges
   ;; TODO: use transients
-  (loop [ranges (seq entityRanges)
+  (loop [ranges (->> entityRanges
+                     (sort-by :offset)
+                     (seq))
          result []
          offset 0]
     (if-let [item (first ranges)]
@@ -39,14 +41,14 @@
                              end   (get item :offset)]
                          (conj $ {:start start
                                   :end   end
-                                  :text  (subs text start (+ start end))})))
+                                  :text  (subs text start (+ end))})))
 
                :always
                (as-> $ (let [start (get item :offset)
                              end   (+ start (get item :length))]
                          (conj $ {:start  start
                                   :end    end
-                                  :text   (subs text start (+ start end))
+                                  :text   (subs text start (+  end))
                                   :entity (keyword (str (get item :key)))}))))
 
              (+ (get item :offset) (get item :length)))
@@ -57,7 +59,7 @@
                       end   (count text)]
                   (conj $ {:start start
                            :end   end
-                           :text  (subs text start (+ start end))})))))))
+                           :text  (subs text start (+  end))})))))))
 
 (defn get-section-markup
   [section]
@@ -65,14 +67,16 @@
 
 (defn get-entity-markup
   [section entity]
-  ;; (prn "get-entity-markup" entity)
+  ;; (prn "get-entity-markup" 111 section)
+  ;; (prn "get-entity-markup" 222 entity)
   (let [style (sts/generate-text-styles* (get entity :data))]
     (mf/create-element "span" #js {:style style} #js [(:text section)])))
 
 (defn get-block-inline-markup
   [shape block entities]
   (let [sections (get-sections block)]
-    ;; (prn "get-block-inline-markup" sections)
+    ;; (doseq [s sections]
+    ;;   (prn "section" s))
     (for [item sections]
       (if-let [key (:entity item)]
         (get-entity-markup item (get entities key))
@@ -94,8 +98,6 @@
         blocks   (get content :blocks)
         embed?   (obj/get props "embed-fonts?")
         style    (sts/generate-root-styles* shape)]
-
-
 
     [:div.rich-text
      {:style style

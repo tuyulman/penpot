@@ -3,4 +3,14 @@ foreignObject .rich-text {
   color: $color-black;
   height: 100%;
   white-space: pre-wrap;
+  font-family: sourcesanspro;
+
+
+  div {
+    line-height: inherit;
+  }
+  span {
+    line-height: inherit;
+  }
+
 }

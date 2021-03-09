@@ -52,7 +52,7 @@
                       {:editor editor :shape shape
                        :attrs text-attrs}))]
 
-    (prn "KAKAKA" text-attrs)
+    ;; (prn "KAKAKA" text-attrs)
 
     [:*
      [:& measures-menu {:ids ids

@@ -72,8 +72,8 @@
   []
   (letfn [(select-all [state]
             (let [content   (.getCurrentContent ^js state)
-                  fblock    (.. ^js content (getBlockMap) (first))
-                  lblock    (.. ^js content (getBlockMap) (last))
+                  fblock    (.. ^js content getBlockMap first)
+                  lblock    (.. ^js content getBlockMap last)
                   fbk       (.getKey ^js fblock)
                   lbk       (.getKey ^js lblock)
                   lbl       (.getLength ^js lblock)
@@ -90,49 +90,28 @@
 
 ;; --- Helpers
 
+(defn get-editor-current-block
+  [state]
+  (let [content (.getCurrentContent ^js state)
+        key     (.. ^js state getSelection getStartKey)]
+    (.getBlockForKey ^js content key)))
+
+(defn get-editor-current-block-data
+  [state]
+  (let [block (get-editor-current-block state)]
+    (.getData ^js block)))
+
 (defn get-editor-current-entity-key
   [state]
-  (let [content      (.getCurrentContent ^js state)
-        selection    (.getSelection ^js state)
-        start-key    (.getStartKey ^js selection)
-        start-offset (.getStartOffset ^js selection)
-        block        (.getBlockForKey ^js content start-key)]
-    (.getEntityAt ^js block start-offset)))
+  (let [block   (get-editor-current-block ^js state)
+        offset  (.. state getSelection getStartOffset)]
+    (.getEntityAt ^js block offset)))
 
 (defn get-editor-current-entity-data
   [state]
   (let [content (.getCurrentContent ^js state)]
-    (some-> (get-editor-current-entity-key state)
-            (as-> $ (.. content (getEntity $) (getData))))))
-            ;; (js->clj :keywordize-keys true))))
-
-;; (defn- editor-current-entity-data
-;;   [state pred attrs ]
-;;   (let [options #js {:match pred :universal universal?}
-;;         _ (when (nil? (obj/get editor "selection"))
-;;             (obj/set! options "at" (calculate-full-selection editor)))
-;;         result (.nodes Editor editor options)
-;;         match  (ffirst (es6-iterator-seq result))]
-;;     (when (object? match)
-;;       (let [attrs  (clj->js attrs)
-;;             result (areduce attrs i ret #js {}
-;;                             (let [val (obj/get match (aget attrs i))]
-;;                               (if val
-;;                                 (obj/set! ret (aget attrs i) val)
-;;                                 ret)))]
-;;         (js->clj result :keywordize-keys true)))))
-
-
-(defn- shape-current-values
-  [shape pred attrs]
-  {}
-  #_(let [root  (:content shape)
-          nodes (->> (nodes-seq pred root)
-                     (map #(if (is-text-node? %)
-                             (merge ut/default-text-attrs %)
-                             %)))]
-      (attrs/get-attrs-multi nodes attrs)))
-
+    (when-let [key (get-editor-current-entity-key state)]
+      (.. content (getEntity key) (getData)))))
 
 (defn get-entity-data
   [{:keys [content2] :as shape}]
@@ -140,6 +119,13 @@
             (d/merge res (:data item)))
           {}
           (vals (:entityMap content2))))
+
+(defn get-block-data
+  [{:keys [content2] :as shape}]
+  (reduce (fn [res item]
+            (d/merge res (:data item)))
+          {}
+          (:blocks content2)))
 
 (defn current-text-values
   [{:keys [editor attrs shape]}]
@@ -150,17 +136,20 @@
     (-> (get-entity-data shape)
         (select-keys attrs))))
 
+(defn immutable->clj
+  [obj]
+  (some-> obj
+          (.toJS)
+          (clj->js :keywordize-keys true)))
+
 (defn current-paragraph-values
   [{:keys [editor attrs shape]}]
-  #_(if editor
-    (editor-current-values editor is-paragraph-node? attrs false)
-    (shape-current-values shape is-paragraph-node? attrs)))
-
-(defn current-root-values
-  [{:keys [editor attrs shape]}]
-  #_(if editor
-    (editor-current-values editor is-root-node? attrs false)
-    (shape-current-values shape is-root-node? attrs)))
+  (if editor
+    (-> (get-editor-current-block-data editor)
+        (immutable->clj)
+        (select-keys attrs))
+    (-> (get-block-data shape)
+        (select-keys attrs))))
 
 (defn- merge-attrs
   [node attrs]

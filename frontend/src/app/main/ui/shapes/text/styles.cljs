@@ -29,6 +29,17 @@
        (= valign "bottom")  (obj/set! "justifyContent" "flex-end")
        ))))
 
+(defn generate-root-styles*
+  [shape]
+  (let [valign (:vertical-align shape "top")
+        base   #js {:height (or (:height shape) "100%")
+                    :width (or (:width shape) "100%")}]
+    (cond-> base
+      (= valign "top")     (obj/set! "justifyContent" "flex-start")
+      (= valign "center")  (obj/set! "justifyContent" "center")
+      (= valign "bottom")  (obj/set! "justifyContent" "flex-end")
+      )))
+
 (defn generate-paragraph-set-styles
   ([props] (generate-paragraph-set-styles (clj->js (obj/get props "node")) props))
   ([data props]
@@ -67,23 +78,38 @@
        lh (obj/set! "lineHeight" lh)
        (= grow-type :auto-width) (obj/set! "whiteSpace" "pre")))))
 
+
+(defn generate-paragraph-styles*
+  [shape data]
+  (let [data      (cond-> data (map? data) (clj->js))
+        grow-type (:grow-type shape)
+        base #js  {:fontSize "14px"
+                   :margin "inherit"
+                   :lineHeight "1.2"}
+        lh        (obj/get data "line-height")
+        ta        (obj/get data "text-align")]
+    (cond-> base
+      ta                        (obj/set! "textAlign" ta)
+      lh                        (obj/set! "lineHeight" lh)
+      (= grow-type :auto-width) (obj/set! "whiteSpace" "pre"))))
+
 (defn generate-text-styles
   ([props] (generate-text-styles (clj->js (obj/get props "node")) props))
   ([data props]
-   (let [letter-spacing (obj/get data "letter-spacing")
+   (let [letter-spacing  (obj/get data "letter-spacing")
          text-decoration (obj/get data "text-decoration")
-         text-transform (obj/get data "text-transform")
-         line-height (obj/get data "line-height")
+         text-transform  (obj/get data "text-transform")
+         line-height     (obj/get data "line-height")
 
-         font-id (obj/get data "font-id" (:font-id ut/default-text-attrs))
+         font-id         (obj/get data "font-id" (:font-id ut/default-text-attrs))
          font-variant-id (obj/get data "font-variant-id")
 
-         font-family (obj/get data "font-family")
-         font-size  (obj/get data "font-size")
+         font-family     (obj/get data "font-family")
+         font-size       (obj/get data "font-size")
 
          ;; Old properties for backwards compatibility
-         fill (obj/get data "fill")
-         opacity (obj/get data "opacity" 1)
+         fill            (obj/get data "fill")
+         opacity         (obj/get data "opacity" 1)
 
          fill-color (obj/get data "fill-color" fill)
          fill-opacity (obj/get data "fill-opacity" opacity)

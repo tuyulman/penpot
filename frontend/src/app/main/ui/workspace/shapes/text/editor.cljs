@@ -142,10 +142,33 @@
 ;;   (mf/html
 ;;    [:> editor-text-node props]))
 
+(mf/defc block-component
+  {::mf/wrap-props false}
+  [props]
+  (let [children (obj/get props "children")
+        bprops   (obj/get props "blockProps")
+        style    (sts/generate-paragraph-styles* (obj/get bprops "shape")
+                                                 (obj/get bprops "data"))]
+    [:div {:style style}
+     [:> draft/EditorBlock props]]))
+
 ;; --- Text Shape Edit
 
 (def empty-editor-state
   (.createEmpty ^js draft/EditorState))
+
+(defn render-block
+  [block shape]
+  (let [type (.getType ^js block)
+        data (.getData ^js block)]
+    ;; (js/console.log "render-block" "data" data)
+    (case type
+      "unstyled"
+      #js {:editable true
+           :component block-component
+           :props #js {:data (.toJS data)
+                       :shape shape}}
+      nil)))
 
 (mf/defc text-shape-edit-html
   {::mf/wrap [mf/memo]
@@ -248,6 +271,7 @@
      [:> draft/Editor
       {:on-change on-change
        :on-blur on-blur
+       :block-renderer-fn #(render-block % shape)
        :ref on-editor
        :editor-state state}]]))
 

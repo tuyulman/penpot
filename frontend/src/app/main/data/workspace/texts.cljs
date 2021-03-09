@@ -122,21 +122,21 @@
 ;;         range      (calculate-full-selection editor)]
 ;;     (.select Transforms editor range)))
 
-(defn- editor-set!
-  ([editor props]
-   (editor-set! editor props #js {}))
-  ([editor props options]
-   (.setNodes Transforms editor props options)
-   editor))
+;; (defn- editor-set!
+;;   ([editor props]
+;;    (editor-set! editor props #js {}))
+;;   ([editor props options]
+;;    (.setNodes Transforms editor props options)
+;;    editor))
 
-(defn- transform-nodes
-  [pred transform data]
-  (walk/postwalk
-   (fn [item]
-     (if (and (map? item) (pred item))
-       (transform item)
-       item))
-   data))
+;; (defn- transform-nodes
+;;   [pred transform data]
+;;   (walk/postwalk
+;;    (fn [item]
+;;      (if (and (map? item) (pred item))
+;;        (transform item)
+;;        item))
+;;    data))
 
 ;; --- Editor Related Helpers
 
@@ -229,38 +229,125 @@
    (impl-update-shape-attrs shape attrs is-text-node?))
   ([{:keys [type content] :as shape} attrs pred]
    (assert (= :text type) "should be shape type")
-   (let [merge-attrs #(merge-attrs % attrs)]
+   #_(let [merge-attrs #(merge-attrs % attrs)]
      (update shape :content #(transform-nodes pred merge-attrs %)))))
 
-(defn update-attrs
-  [{:keys [id editor attrs pred split]
-    :or {pred is-text-node?}}]
-  (if editor
-    (ptk/reify ::update-attrs
-      ptk/EffectEvent
-      (effect [_ state stream]
-        (editor-set! editor (clj->js attrs) #js {:match pred :split split})))
+;; (defn update-attrs
+;;   [{:keys [id editor attrs pred split]
+;;     :or {pred is-text-node?}}]
+;;   (if editor
+;;     (ptk/reify ::update-attrs
+;;       ptk/EffectEvent
+;;       (effect [_ state stream]
+;;         (editor-set! editor (clj->js attrs) #js {:match pred :split split})))
 
-    (ptk/reify ::update-attrs
-      ptk/WatchEvent
-      (watch [_ state stream]
-        (let [objects (dwc/lookup-page-objects state)
-              shape (get objects id)
-              ids (cond (= (:type shape) :text)  [id]
-                        (= (:type shape) :group) (cp/get-children id objects))]
-          (rx/of (dwc/update-shapes ids #(impl-update-shape-attrs % attrs pred))))))))
+;;     (ptk/reify ::update-attrs
+;;       ptk/WatchEvent
+;;       (watch [_ state stream]
+;;         (let [objects (dwc/lookup-page-objects state)
+;;               shape (get objects id)
+;;               ids (cond (= (:type shape) :text)  [id]
+;;                         (= (:type shape) :group) (cp/get-children id objects))]
+;;           (rx/of (dwc/update-shapes ids #(impl-update-shape-attrs % attrs pred))))))))
 
-(defn update-text-attrs
-  [options]
-  (update-attrs (assoc options :pred is-text-node? :split true)))
+;; --- TEXT EDITION IMPL
 
-(defn update-paragraph-attrs
-  [options]
-  (update-attrs (assoc options :pred is-paragraph-node? :split false)))
+;; (defn update-text-attrs
+;;   [options]
+;;   #_(update-attrs (assoc options :pred is-text-node? :split true)))
 
 (defn update-root-attrs
   [options]
-  (update-attrs (assoc options :pred is-root-node? :split false)))
+  #_(update-attrs (assoc options :pred is-root-node? :split false)))
+
+
+(defn- editor-update-block
+  [state attrs]
+  (loop [selection (.getSelection ^js state)
+         start-key (.getStartKey ^js selection)
+         end-key   (.getEndKey ^js selection)
+         content   (.getCurrentContent ^js state)
+         target    selection]
+    (if (and (not= start-key end-key)
+             (zero? (.getEndOffset ^js selection)))
+      (let [before-block (.getBlockBefore ^js content end-key)]
+        (recur selection
+               start-key
+               (.getKey ^js before-block)
+               content
+               (.merge ^js target
+                       #js {:anchorKey start-key
+                            :anchorOffset (.getStartOffset ^js selection)
+                            :focusKey end-key
+                            :focusOffset (.getLength ^js before-block)
+                            :isBackward false})))
+      (.push ^js draft/EditorState
+             state
+             (.mergeBlockData ^js draft/Modifier content target (clj->js attrs))
+             "change-block-data"))))
+
+;; TODO: handle non editor changes
+(defn update-paragraph-attrs
+  [{:keys [id attrs]}]
+  (ptk/reify ::update-paragraph-attrs
+    ptk/UpdateEvent
+    (update [_ state]
+      (prn "update-paragraph-attrs" attrs)
+      (update state :workspace-editor editor-update-block attrs))))
+
+
+
+
+
+;; _confirmLink(e) {
+;;   e.preventDefault();
+;;   const {editorState, urlValue} = this.state;
+;;   const contentState = editorState.getCurrentContent();
+;;   const contentStateWithEntity = contentState.createEntity(
+;;     'LINK',
+;;     'MUTABLE',
+;;     {url: urlValue}
+;;   );
+;;   const entityKey = contentStateWithEntity.getLastCreatedEntityKey();
+;;   const newEditorState = EditorState.set(editorState, { currentContent: contentStateWithEntity });
+;;   this.setState({
+;;     editorState: RichUtils.toggleLink(
+;;       newEditorState,
+;;       newEditorState.getSelection(),
+;;       entityKey
+;;     ),
+;;     showURLInput: false,
+;;     urlValue: '',
+;;   }, () => {
+;;     setTimeout(() => this.refs.editor.focus(), 0);
+;;   });
+;; }
+
+(defn editor-update-entity
+  [state attrs]
+  (let [content  (.getCurrentContent ^js state)
+        content  (.createEntity ^js content
+                                "PENPOT"
+                                "MUTABLE"
+                                (clj->js attrs))
+        ekey     (.getLastCreatedEntityKey ^js content)
+        state    (.set ^js draft/EditorState state #js {:currentContent content})
+        modifier (.applyEntity draft/Modifier
+                               (.getCurrentContent ^js state)
+                               (.getSelection ^js state)
+                               ekey)]
+    (.push draft/EditorState state modifier "apply-entity")))
+
+(defn update-text-attrs
+  [{:keys [id attrs]}]
+  (ptk/reify ::update-text-attrs
+    ptk/UpdateEvent
+    (update [_ state]
+      (prn "update-text-attrs" attrs)
+      (update state :workspace-editor editor-update-entity attrs))))
+
+
+;; --- UTILS
 
 (defn update-overflow-text [id value]
   (ptk/reify ::update-overflow-text

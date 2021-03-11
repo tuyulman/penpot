@@ -5,12 +5,12 @@ foreignObject .rich-text {
   white-space: pre-wrap;
   font-family: sourcesanspro;
 
-
   div {
     line-height: inherit;
+    user-select: all;
   }
+
   span {
     line-height: inherit;
   }
-
 }

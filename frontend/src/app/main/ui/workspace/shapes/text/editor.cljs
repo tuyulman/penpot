@@ -18,7 +18,7 @@
    [app.common.data :as d]
    [app.common.geom.shapes :as gsh]
    [app.util.dom :as dom]
-   [app.util.text :as ut]
+   [app.util.text :as txt]
    [app.util.object :as obj]
    [app.main.refs :as refs]
    [app.main.store :as st]
@@ -32,26 +32,21 @@
    goog.events.EventType
    goog.events.KeyCodes))
 
-;; (extend-type imm/OrderedSet
-;;   cljs.core/ISeqable
-;;   (-seq [coll]
-;;     (es6-iterator-seq (js-invoke coll js/Symbol.iterator))))
-
 ;; --- Data functions
 
-(defn- content-size
-  [node]
-  (let [current (count (:text node))
-        children-count (->> node :children (map content-size) (reduce +))]
-    (+ current children-count)))
+;; (defn- content-size
+;;   [node]
+;;   (let [current (count (:text node))
+;;         children-count (->> node :children (map content-size) (reduce +))]
+;;     (+ current children-count)))
 
-(defn- fix-gradients
-  "Fix for the gradient types that need to be keywords"
-  [content]
-  (let [fix-node
-        (fn [node]
-          (d/update-in-when node [:fill-color-gradient :type] keyword))]
-    (ut/map-node fix-node content)))
+;; (defn- fix-gradients
+;;   "Fix for the gradient types that need to be keywords"
+;;   [content]
+;;   (let [fix-node
+;;         (fn [node]
+;;           (d/update-in-when node [:fill-color-gradient :type] keyword))]
+;;     (txt/map-node fix-node content)))
 
 ;; --- Text Editor Rendering
 
@@ -74,8 +69,6 @@
     [:div {:style style}
      [:> draft/EditorBlock props]]))
 
-;; --- Text Shape Edit
-
 (defn render-block
   [block shape]
   (let [type (.getType ^js block)
@@ -91,17 +84,6 @@
 
 (def empty-editor-state
   (.createEmpty ^js draft/EditorState))
-
-
-(defn- styles-to-attrs
-  [styles]
-  (loop [result #js {}
-         styles (seq styles)]
-    (if-let [style (first styles)]
-      (let [[k v] (str/split (subs style 8) ":")]
-        (recur (obj/set! result (-> k str/lower str/camel) (str/lower v))
-               (rest styles)))
-      result)))
 
 (mf/defc text-shape-edit-html
   {::mf/wrap [mf/memo]
@@ -169,7 +151,7 @@
                       (events/listen js/document EventType.CLICK on-click-outside)
                       (events/listen js/document EventType.KEYUP on-key-up)]]
             (st/emit! (dwt/initialize-editor-state shape)
-                      #_(dwt/select-all))
+                      (dwt/select-all))
             #(do
                (st/emit! (dwt/finalize-editor-state shape))
                (doseq [key keys]
@@ -196,15 +178,18 @@
     (mf/use-layout-effect on-mount)
 
     [:div.text-editor {:ref self-ref}
-     #_[:style "span { line-height: inherit; }
-              .gradient { background: var(--text-color); -webkit-text-fill-color: transparent; -webkit-background-clip: text;"]
+     [:style
+      "span { line-height: inherit; }
+      .gradient { background: var(--text-color); -webkit-text-fill-color: transparent; -webkit-background-clip: text;"]
 
      [:> draft/Editor
       {:on-change on-change
        :on-blur on-blur
+       :on-select (fn [event]
+                    (js/console.log event))
        :custom-style-fn (fn [styles block]
-                          ;; (js/console.log (unchecked-get styles js/Symbol.iterator))
-                          (styles-to-attrs (seq styles)))
+                          (-> (txt/styles-to-attrs styles)
+                              (sts/generate-text-styles*)))
        :block-renderer-fn #(render-block % shape)
        :ref on-editor
        :editor-state state}]]))

@@ -19,10 +19,9 @@
    [app.main.data.workspace.transforms :as dwt]
    [app.main.fonts :as fonts]
    [app.util.object :as obj]
-   [app.util.text :as ut]
+   [app.util.text :as txt]
    [beicon.core :as rx]
    [cljs.spec.alpha :as s]
-   [clojure.walk :as walk]
    [goog.object :as gobj]
    [cuerdas.core :as str]
    [potok.core :as ptk]))
@@ -88,109 +87,63 @@
 
 ;; --- Helpers
 
-(defn attrs-to-styles
-  [attrs]
-  (reduce-kv (fn [res k v]
-               (let [k (str/upper (d/name k))
-                     v (str/upper (d/name v))]
-                 (conj res (str "PENPOT$$" k ":" v))))
-             #{}
-             attrs))
-
-(defn styles-to-attrs
-  [styles]
-  (persistent!
-   (reduce (fn [result style]
-             (let [[k v] (str/split (subs style 8) ":")]
-               (assoc! result (-> k str/lower keyword) (str/lower v))))
-           (transient {})
-           (seq styles))))
-
-(defn get-editor-current-block
+(defn- get-editor-current-block
   [state]
   (let [content (.getCurrentContent ^js state)
         key     (.. ^js state getSelection getStartKey)]
     (.getBlockForKey ^js content key)))
 
-(defn get-editor-current-block-data
-  [state]
-  (let [block (get-editor-current-block state)]
-    (.getData ^js block)))
-
-;; (defn get-editor-current-entity-key
-;;   [state]
-;;   (let [block   (get-editor-current-block ^js state)
-;;         offset  (.. state getSelection getStartOffset)]
-;;     (.getEntityAt ^js block offset)))
-
-(defn get-editor-current-styles
-  [state]
-  (let [styles (.getCurrentInlineStyle ^js state)]
-    (styles-to-attrs styles)))
-
-
-;; TODO
-(defn get-style-data
+(defn- get-style-data
   [{:keys [content2] :as shape}]
-  (reduce (fn [res item]
-            (d/merge res (:data item)))
-          {}
-          (vals (:entityMap content2))))
+  (->> (:blocks content2)
+       (mapcat :inlineStyleRanges)
+       (txt/parse-style-ranges)
+       (reduce (fn [res {:keys [key val] :as item}]
+                 (assoc! res key val))
+               (transient {}))
+       (persistent!)))
 
-(defn get-block-data
+(defn- get-block-data
   [{:keys [content2] :as shape}]
   (reduce (fn [res item]
             (d/merge res (:data item)))
           {}
           (:blocks content2)))
 
-
-(defn immutable->clj
+(defn- immutable-map->map
   [obj]
-  (some-> obj
-          (.toJS)
-          (clj->js :keywordize-keys true)))
+  (into {} (map (fn [[k v]] [(keyword k) v])) (seq obj)))
 
 (defn current-paragraph-values
   [{:keys [editor-state attrs shape]}]
   (if editor-state
-    (-> (get-editor-current-block-data editor-state)
-        (immutable->clj)
-        (select-keys attrs))
+    (let [block (get-editor-current-block editor-state)]
+      (-> (.getData ^js block)
+          (immutable-map->map)
+          (select-keys attrs)))
     (-> (get-block-data shape)
         (select-keys attrs))))
 
 (defn current-text-values
   [{:keys [editor-state attrs shape]}]
   (if editor-state
-    (-> (get-editor-current-styles editor-state)
-        #_(js->clj :keywordize-keys true)
+    (-> (.getCurrentInlineStyle ^js editor-state)
+        (txt/styles-to-attrs)
         (select-keys attrs))
-    (-> (get-style-data shape)
-        (select-keys attrs))))
-
-(defn- merge-attrs
-  [node attrs]
-  (reduce-kv (fn [node k v]
-               (if (nil? v)
-                 (dissoc node k)
-                 (assoc node k v)))
-             node
-             attrs))
-
-(defn update-shape-block-attrs
-  [shape attrs]
-  (d/update-in-when shape [:content2 :blocks]
-                    (fn [blocks]
-                      (mapv #(update % :data merge-attrs attrs) blocks))))
-
+    ;; TODO
+    (let [res (get-style-data shape)
+          res (select-keys res attrs)]
+      res)))
 
 ;; --- TEXT EDITION IMPL
 
-;; TODO: handle non editor changes
 (defn update-paragraph-attrs
   [{:keys [id attrs]}]
-  (letfn [(update-editor-current-block [state]
+  (letfn [(update-shape-blocks [shape]
+            (d/update-in-when shape [:content2 :blocks]
+                              (fn [blocks]
+                                (mapv #(update % :data d/merge attrs) blocks))))
+          (update-editor-current-block [state]
             (loop [selection (.getSelection ^js state)
                    start-key (.getStartKey ^js selection)
                    end-key   (.getEndKey ^js selection)
@@ -225,15 +178,49 @@
                 shape   (get objects id)
                 ids     (cond (= (:type shape) :text)  [id]
                               (= (:type shape) :group) (cp/get-children id objects))]
-            (rx/of (dwc/update-shapes ids #(update-shape-block-attrs % attrs)))))))))
+            (rx/of (dwc/update-shapes ids update-shape-blocks))))))))
 
 (defn update-text-attrs
   [{:keys [id attrs]}]
-  (letfn [(change-inline-style [state]
-            (prn "update-text-attrs" attrs)
-            (let [selection (.getSelection state)
+  (letfn [(update-block-inline-style [block key val]
+            (let [style   (txt/encode-style key val)
+                  sprefix (txt/encode-partial-style key)
+                  exising (into #{}
+                                (filter #(str/starts-with? (:style %) sprefix))
+                                (:inlineStyleRanges block))
+
+                  srange  {:offset 0
+                           :length (count (:text block))
+                           :style style}]
+
+              (cond
+                ;; If the style is already available in some range, we replace all the existing
+                ;; styles with the new one.
+                (nil? val)
+                (update block :inlineStyleRanges
+                        (fn [ranges]
+                          (into [] (remove exising) ranges)))
+
+                (seq exising)
+                (update block :inlineStyleRanges
+                        (fn [ranges]
+                          (into [srange] (remove exising) ranges)))
+
+                ;; If no range found, we should add a new style
+                :else
+                (update block :inlineStyleRanges conj srange))))
+
+          (update-shape-inline-style [{:keys [content2] :as shape}]
+            (update-in shape [:content2 :blocks]
+                       (fn [blocks]
+                         (mapv (fn [block]
+                                 (reduce-kv update-block-inline-style block attrs))
+                               blocks))))
+
+          (update-editor-inline-style [state]
+            (let [selection (.getSelection ^js state)
                   content   (.getCurrentContent ^js state)
-                  styles    (attrs-to-styles attrs)]
+                  styles    (txt/attrs-to-styles attrs)]
               (reduce (fn [state style]
                         (let [modifier (.applyInlineStyle draft/Modifier
                                                           (.getCurrentContent ^js state)
@@ -246,53 +233,16 @@
     (ptk/reify ::update-text-attrs
       ptk/UpdateEvent
       (update [_ state]
-        (d/update-when state :workspace-editor-state change-inline-style))
+        (d/update-when state :workspace-editor-state update-editor-inline-style))
 
-      #_ptk/WatchEvent
-      #_(watch [_ state stream]
+      ptk/WatchEvent
+      (watch [_ state stream]
         (when-not (:workspace-editor-state state)
           (let [objects (dwc/lookup-page-objects state)
                 shape   (get objects id)
                 ids     (cond (= (:type shape) :text)  [id]
                               (= (:type shape) :group) (cp/get-children id objects))]
-            (rx/of (dwc/update-shapes ids #(update-shape-attrs % attrs)))))))))
-
-
-;; (defn update-text-attrs
-;;   [{:keys [id attrs]}]
-;;   (letfn [(add-entity [state]
-;;             (let [attrs     (clj->js attrs)
-;;                   selection (.getSelection state)
-;;                   content   (.getCurrentContent ^js state)
-;;                   attrs     (-> (get-editor-current-entity-data state)
-;;                                 (obj/merge attrs))
-;;                   content   (.createEntity ^js content
-;;                                            "PENPOT"
-;;                                            "MUTABLE"
-;;                                            attrs)
-;;                   ekey      (.getLastCreatedEntityKey ^js content)
-;;                   state     (.set ^js draft/EditorState state #js {:currentContent content})
-;;                   modifier  (.applyEntity draft/Modifier
-;;                                           (.getCurrentContent ^js state)
-;;                                           (.getSelection ^js state)
-;;                                           ekey)]
-;;               (.push draft/EditorState state modifier "apply-entity")))]
-;;     (ptk/reify ::update-text-attrs
-;;       ptk/UpdateEvent
-;;       (update [_ state]
-;;         (d/update-when state :workspace-editor-state add-entity))
-
-;;       ptk/WatchEvent
-;;       (watch [_ state stream]
-;;         (when-not (:workspace-editor-state state)
-;;           (let [objects (dwc/lookup-page-objects state)
-;;                 shape   (get objects id)
-;;                 ids     (cond (= (:type shape) :text)  [id]
-;;                               (= (:type shape) :group) (cp/get-children id objects))]
-;;             (rx/of (dwc/update-shapes ids #(update-shape-attrs % attrs)))))))))
-
-
-
+            (rx/of (dwc/update-shapes ids update-shape-inline-style))))))))
 
 ;; --- RESIZE UTILS
 

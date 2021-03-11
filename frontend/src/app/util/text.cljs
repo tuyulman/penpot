@@ -1,6 +1,8 @@
 (ns app.util.text
   (:require
    [cuerdas.core :as str]
+   [app.util.transit :as t]
+   [app.common.data :as d]
    [app.common.attrs :refer [get-attrs-multi]]))
 
 (def default-text-attrs
@@ -120,4 +122,95 @@
   [node attrs]
   (let [nodes (content->nodes node)]
     (get-attrs-multi nodes attrs)))
+
+
+;; --- NEW IMPL
+
+(defn- encode-style-value
+  [v]
+  (cond
+    (string? v)  (str "s:" v)
+    (number? v)  (str "n:" v)
+    (keyword? v) (str "k:" (name v))
+    :else (str "o:" v)))
+
+(defn decode-style-value
+  [v]
+  (let [prefix (subs v 0 2)]
+    (case prefix
+      "s:" (subs v 2)
+      "n:" (js/Number (subs v 2))
+      "k:" (keyword (subs v 2))
+      "o:" (subs v 2)
+      v)))
+
+(defn parse-style-ranges
+  "Parses draft-js style ranges, converting encoded style name into a
+  key/val pair of data."
+  [ranges]
+  (map (fn [{:keys [style] :as item}]
+         (if (str/starts-with? style "PENPOT$$$")
+           (let [[_ k v] (str/split style "$$$" 3)]
+             (assoc item
+                    :key (keyword k)
+                    :val (decode-style-value v)))))
+       ranges))
+
+(defn build-style-index
+  "Generates a character based index with associated styles map."
+  [text ranges]
+  (loop [result (->> (range (count text))
+                     (mapv (constantly {}))
+                     (transient))
+         ranges (seq ranges)]
+    (if-let [{:keys [offset length] :as item} (first ranges)]
+      (recur (reduce (fn [result index]
+                       (let [prev (get result index)]
+                         (assoc! result index (assoc prev (:key item) (:val item)))))
+                     result
+                     (range offset (+ offset length)))
+             (rest ranges))
+      (persistent! result))))
+
+(defn parse-sections
+  "Parses the draft-js block in to contiguos sections based on inline
+  styles associated with ranges of text."
+  [{:keys [text inlineStyleRanges] :as block}]
+  (let [ranges (parse-style-ranges inlineStyleRanges)]
+    (->> (build-style-index text ranges)
+         (d/enumerate)
+         (partition-by second)
+         (map (fn [part]
+                (let [start (ffirst part)
+                      end   (inc (first (last part)))]
+                  {:text  (subs text start end)
+                   :attrs (second (first part))}))))))
+
+(defn encode-style
+  [key val]
+  (let [k (d/name key)
+        v (encode-style-value val)]
+    (str "PENPOT$$$" k "$$$" v)))
+
+(defn encode-partial-style
+  [key]
+  (let [k (d/name key)]
+    (str "PENPOT$$$" k "$$$")))
+
+(defn attrs-to-styles
+  [attrs]
+  (reduce-kv (fn [res k v]
+               (conj res (encode-style k v)))
+             #{}
+             attrs))
+
+(defn styles-to-attrs
+  [styles]
+  (persistent!
+   (reduce (fn [result style]
+             (let [[_ k v] (str/split style "$$$" 3)]
+               (assoc! result (keyword k) (decode-style-value v))))
+           (transient {})
+           (seq styles))))
+
 

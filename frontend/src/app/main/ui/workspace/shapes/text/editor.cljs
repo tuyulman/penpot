@@ -9,10 +9,10 @@
 
 (ns app.main.ui.workspace.shapes.text.editor
   (:require
-   ;; ["slate" :as slate]
-   ;; ["slate-react" :as rslate]
    ["draft-js" :as draft]
+   ["immutable" :as imm]
    [okulary.core :as l]
+   [cuerdas.core :as str]
    [goog.events :as events]
    [rumext.alpha :as mf]
    [app.common.data :as d]
@@ -32,23 +32,12 @@
    goog.events.EventType
    goog.events.KeyCodes))
 
-;; --- Data functions
+;; (extend-type imm/OrderedSet
+;;   cljs.core/ISeqable
+;;   (-seq [coll]
+;;     (es6-iterator-seq (js-invoke coll js/Symbol.iterator))))
 
-;; (defn- initial-text
-;;   [text]
-;;   (clj->js
-;;    [{:type "root"
-;;      :children [{:type "paragraph-set"
-;;                  :children [{:type "paragraph"
-;;                              :children [{:fill-color "#000000"
-;;                                          :fill-opacity 1
-;;                                          :text (or text "")}]}]}]}]))
-;; (defn- parse-content
-;;   [content]
-;;   (cond
-;;     (string? content) (initial-text content)
-;;     (map? content) (clj->js [content])
-;;     :else (initial-text "")))
+;; --- Data functions
 
 (defn- content-size
   [node]
@@ -66,90 +55,14 @@
 
 ;; --- Text Editor Rendering
 
-;; (mf/defc editor-root-node
-;;   {::mf/wrap-props false
-;;    ::mf/wrap [mf/memo]}
-;;   [props]
-;;   (let [
-;;         childs (obj/get props "children")
-;;         data   (obj/get props "element")
-;;         type   (obj/get data "type")
-;;         style  (sts/generate-root-styles data props)
-;;         attrs  (-> (obj/get props "attributes")
-;;                    (obj/set! "style" style)
-;;                    (obj/set! "className" type))]
-;;     [:> :div attrs childs]))
-
-;; (mf/defc editor-paragraph-set-node
+;; (mf/defc entity-component
 ;;   {::mf/wrap-props false}
 ;;   [props]
-;;   (let [childs (obj/get props "children")
-;;         data   (obj/get props "element")
-;;         type   (obj/get data "type")
-;;         shape  (obj/get props "shape")
-;;         style  (sts/generate-paragraph-set-styles data props)
-;;         attrs  (-> (obj/get props "attributes")
-;;                    (obj/set! "style" style)
-;;                    (obj/set! "className" type))]
-;;     [:> :div attrs childs]))
-
-;; (mf/defc editor-paragraph-node
-;;   {::mf/wrap-props false}
-;;   [props]
-;;   (let [
-;;         childs (obj/get props "children")
-;;         data   (obj/get props "element")
-;;         type   (obj/get data "type")
-;;         style  (sts/generate-paragraph-styles data props)
-;;         attrs  (-> (obj/get props "attributes")
-;;                    (obj/set! "style" style)
-;;                    (obj/set! "className" type))]
-;;     [:> :p attrs childs]))
-
-;; (mf/defc editor-text-node
-;;   {::mf/wrap-props false}
-;;   [props]
-;;   (let [childs (obj/get props "children")
-;;         data   (obj/get props "leaf")
-;;         type   (obj/get data "type")
-;;         style  (sts/generate-text-styles data props)
-;;         attrs  (-> (obj/get props "attributes")
-;;                    (obj/set! "style" style))
-;;         gradient (obj/get data "fill-color-gradient" nil)]
-;;     (if gradient
-;;       (obj/set! attrs "className" (str type " gradient"))
-;;       (obj/set! attrs "className" type))
-;;     [:> :span attrs childs]))
-
-;; (defn- render-element
-;;   [shape props]
-;;   (mf/html
-;;    (let [element (obj/get props "element")
-;;          type    (obj/get element "type")
-;;          props   (obj/merge! props #js {:shape shape})
-;;          props   (cond-> props
-;;                    (= type "root") (obj/set! "key" "root")
-;;                    (= type "paragraph-set") (obj/set! "key" "paragraph-set"))]
-
-;;      (case type
-;;        "root"          [:> editor-root-node props]
-;;        "paragraph-set" [:> editor-paragraph-set-node props]
-;;        "paragraph"     [:> editor-paragraph-node props]
-;;        nil))))
-
-;; (defn- render-text
-;;   [props]
-;;   (mf/html
-;;    [:> editor-text-node props]))
-
-(mf/defc entity-component
-  {::mf/wrap-props false}
-  [props]
-  (let [children (obj/get props "children")
-        content  (obj/get props "contentState")
-        entity   (.getEntity ^js content (obj/get props "entityKey"))
-        style    (sts/generate-text-styles* (.getData entity))]
-    [:span {:style style} children]))
+;;   (let [children (obj/get props "children")
+;;         content  (obj/get props "contentState")
+;;         entity   (.getEntity ^js content (obj/get props "entityKey"))
+;;         style    (sts/generate-text-styles* (.getData entity))]
+;;     [:span {:style style} children]))
 
 (mf/defc block-component
   {::mf/wrap-props false}
@@ -176,23 +89,19 @@
                        :shape shape}}
       nil)))
 
-(defn find-penpot-entities
-  [block callback content]
-  (.findEntityRanges ^js block
-                     (fn [cmeta]
-                       (let [ekey (.getEntity ^js cmeta)]
-                         (boolean
-                          (and (some? ekey)
-                               (= "PENPOT" (.. ^js content (getEntity ekey) (getType)))))))
-                     callback))
-
-(def default-decorator
-  (draft/CompositeDecorator.
-   #js [#js {:strategy find-penpot-entities
-             :component entity-component}]))
-
 (def empty-editor-state
-  (.createEmpty ^js draft/EditorState default-decorator))
+  (.createEmpty ^js draft/EditorState))
+
+
+(defn- styles-to-attrs
+  [styles]
+  (loop [result #js {}
+         styles (seq styles)]
+    (if-let [style (first styles)]
+      (let [[k v] (str/split (subs style 8) ":")]
+        (recur (obj/set! result (-> k str/lower str/camel) (str/lower v))
+               (rest styles)))
+      result)))
 
 (mf/defc text-shape-edit-html
   {::mf/wrap [mf/memo]
@@ -202,12 +111,10 @@
   (let [{:keys [id x y width height content2 grow-type] :as shape} (unchecked-get props "shape")
 
         zoom          (mf/deref refs/selected-zoom)
-        state         (or (mf/deref refs/workspace-editor) empty-editor-state)
+        state         (or (mf/deref refs/workspace-editor-state) empty-editor-state)
 
-        ;; editor-ref    (mf/use-ref)
         self-ref      (mf/use-ref)
         selecting-ref (mf/use-ref)
-        ;; measure-ref   (mf/use-ref)
 
         on-close
         (fn []
@@ -261,8 +168,8 @@
           (let [keys [(events/listen js/document EventType.MOUSEDOWN on-click-outside)
                       (events/listen js/document EventType.CLICK on-click-outside)
                       (events/listen js/document EventType.KEYUP on-key-up)]]
-            (st/emit! (dwt/initialize-editor-state shape default-decorator)
-                      (dwt/select-all))
+            (st/emit! (dwt/initialize-editor-state shape)
+                      #_(dwt/select-all))
             #(do
                (st/emit! (dwt/finalize-editor-state shape))
                (doseq [key keys]
@@ -289,12 +196,15 @@
     (mf/use-layout-effect on-mount)
 
     [:div.text-editor {:ref self-ref}
-     [:style "span { line-height: inherit; }
+     #_[:style "span { line-height: inherit; }
               .gradient { background: var(--text-color); -webkit-text-fill-color: transparent; -webkit-background-clip: text;"]
 
      [:> draft/Editor
       {:on-change on-change
        :on-blur on-blur
+       :custom-style-fn (fn [styles block]
+                          ;; (js/console.log (unchecked-get styles js/Symbol.iterator))
+                          (styles-to-attrs (seq styles)))
        :block-renderer-fn #(render-block % shape)
        :ref on-editor
        :editor-state state}]]))

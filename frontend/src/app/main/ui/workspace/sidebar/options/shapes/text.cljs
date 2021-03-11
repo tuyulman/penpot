@@ -23,14 +23,13 @@
   [{:keys [shape] :as props}]
   (let [ids    [(:id shape)]
         type   (:type shape)
-        editor (mf/deref refs/workspace-editor)
 
-        measure-values (select-keys shape measure-attrs)
+        editor-state (mf/deref refs/workspace-editor-state)
 
-        fill-values (dwt/current-text-values
-                     {:editor editor
-                      :shape shape
-                      :attrs text-fill-attrs})
+        fill-values  (dwt/current-text-values
+                      {:editor-state editor-state
+                       :shape shape
+                       :attrs text-fill-attrs})
 
         fill-values (d/update-in-when fill-values [:fill-color-gradient :type] keyword)
 
@@ -39,34 +38,42 @@
                       (:fill fill-values) (assoc :fill-color (:fill fill-values))
                       (:opacity fill-values) (assoc :fill-opacity (:fill fill-values)))
 
-
         text-values (merge
                      (select-keys shape [:grow-type :vertical-align :text-align])
                      #_(dwt/current-root-values
-                      {:editor editor :shape shape
-                       :attrs root-attrs})
+                        {:editor-state editor-state
+                         :shape shape
+                         :attrs root-attrs})
                      (dwt/current-paragraph-values
-                      {:editor editor :shape shape
+                      {:editor-state editor-state
+                       :shape shape
                        :attrs paragraph-attrs})
                      (dwt/current-text-values
-                      {:editor editor :shape shape
+                      {:editor-state editor-state
+                       :shape shape
                        :attrs text-attrs}))]
 
-    ;; (prn "KAKAKA" text-attrs)
-
     [:*
-     [:& measures-menu {:ids ids
-                        :type type
-                        :values measure-values}]
-     [:& fill-menu {:ids ids
-                    :type type
-                    :values fill-values
-                    :editor editor}]
-     [:& shadow-menu {:ids ids
-                      :values (select-keys shape [:shadow])}]
-     [:& blur-menu {:ids ids
-                    :values (select-keys shape [:blur])}]
-     [:& text-menu {:ids ids
-                    :type type
-                    :values text-values
-                    :editor editor}]]))
+
+     [:& measures-menu
+      {:ids ids
+       :type type
+       :values (select-keys shape measure-attrs)}]
+
+     [:& fill-menu
+      {:ids ids
+       :type type
+       :values fill-values}]
+
+     [:& shadow-menu
+      {:ids ids
+       :values (select-keys shape [:shadow])}]
+
+     [:& blur-menu
+      {:ids ids
+       :values (select-keys shape [:blur])}]
+
+     [:& text-menu
+      {:ids ids
+       :type type
+       :values text-values}]]))

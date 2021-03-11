@@ -70,14 +70,14 @@
 (defn enumerate
   ([items] (enumerate items 0))
   ([items start]
-   (loop [idx start
+   (loop [idx   start
           items items
-          res []]
+          res   (transient [])]
      (if (empty? items)
-       res
+       (persistent! res)
        (recur (inc idx)
               (rest items)
-              (conj res [idx (first items)]))))))
+              (conj! res [idx (first items)]))))))
 
 (defn seek
   ([pred coll]
@@ -147,8 +147,10 @@
 
 (defn mapm
   "Map over the values of a map"
-  [mfn coll]
-  (into {} (map (fn [[key val]] [key (mfn key val)]) coll)))
+  ([mfn]
+   (map (fn [[key val]] [key (mfn key val)])))
+  ([mfn coll]
+   (into {} (mapm mfn) coll)))
 
 (defn filterm
   "Filter values of a map that satisfy a predicate"

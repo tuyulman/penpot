@@ -3,7 +3,7 @@
    [cuerdas.core :as str]
    [app.common.attrs :refer [get-attrs-multi]]))
 
-(defonce default-text-attrs
+(def default-text-attrs
   {:typography-ref-file nil
    :typography-ref-id nil
    :font-id "sourcesanspro"

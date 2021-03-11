@@ -603,22 +603,6 @@
       (let [selected (get-in state [:workspace-local :selected])]
         (rx/from (map #(update-shape % attrs) selected))))))
 
-(defn update-color-on-selected-shapes
-  [{:keys [fill-color stroke-color] :as attrs}]
-  (us/verify ::shape-attrs attrs)
-  (ptk/reify ::update-color-on-selected-shapes
-    ptk/WatchEvent
-    (watch [_ state stream]
-      (let [selected (get-in state [:workspace-local :selected])
-            update-fn
-            (fn [shape]
-              (cond-> (merge shape attrs)
-                (and (= :text (:type shape))
-                     (string? (:fill-color attrs)))
-                (dwtxt/impl-update-shape-attrs {:fill (:fill-color attrs)})))]
-        (rx/of (dwc/update-shapes-recursive selected update-fn))))))
-
-
 ;; --- Shape Movement (using keyboard shorcuts)
 
 (declare initial-selection-align)

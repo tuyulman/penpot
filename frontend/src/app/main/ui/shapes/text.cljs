@@ -9,85 +9,117 @@
 
 (ns app.main.ui.shapes.text
   (:require
-   [cuerdas.core :as str]
-   [rumext.alpha :as mf]
-   [app.main.ui.context :as muc]
    [app.common.data :as d]
-   [app.common.geom.shapes :as geom]
    [app.common.geom.matrix :as gmt]
-   [app.util.object :as obj]
-   [app.util.color :as uc]
-   [app.main.ui.shapes.text.styles :as sts]
+   [app.common.geom.shapes :as geom]
+   [app.main.ui.context :as muc]
    [app.main.ui.shapes.text.embed :as ste]
-   [app.util.perf :as perf]))
+   [app.main.ui.shapes.text.styles :as sts]
+   [app.util.color :as uc]
+   [app.util.object :as obj]
+   [app.util.perf :as perf]
+   [cuerdas.core :as str]
+   [rumext.alpha :as mf]))
 
 
 ;; --- NEW RENDER IMPL
 
-(defn get-sections
-  [{:keys [text entityRanges] :as block}]
-  ;; TODO: sort ranges
-  ;; TODO: use transients
-  (loop [ranges (->> entityRanges
-                     (sort-by :offset)
-                     (seq))
-         result []
-         offset 0]
-    (if-let [item (first ranges)]
-      (recur (rest ranges)
-             (cond-> result
-               (> (get item :offset) offset)
-               (as-> $ (let [start offset
-                             end   (get item :offset)]
-                         (conj $ {:start start
-                                  :end   end
-                                  :text  (subs text start (+ end))})))
+;; (defn get-sections
+;;   [{:keys [text entityRanges] :as block}]
+;;   ;; TODO: sort ranges
+;;   ;; TODO: use transients
+;;   (loop [ranges (->> entityRanges
+;;                      (sort-by :offset)
+;;                      (seq))
+;;          result []
+;;          offset 0]
+;;     (if-let [item (first ranges)]
+;;       (recur (rest ranges)
+;;              (cond-> result
+;;                (> (get item :offset) offset)
+;;                (as-> $ (let [start offset
+;;                              end   (get item :offset)]
+;;                          (conj $ {:start start
+;;                                   :end   end
+;;                                   :text  (subs text start (+ end))})))
 
-               :always
-               (as-> $ (let [start (get item :offset)
-                             end   (+ start (get item :length))]
-                         (conj $ {:start  start
-                                  :end    end
-                                  :text   (subs text start (+  end))
-                                  :entity (keyword (str (get item :key)))}))))
+;;                :always
+;;                (as-> $ (let [start (get item :offset)
+;;                              end   (+ start (get item :length))]
+;;                          (conj $ {:start  start
+;;                                   :end    end
+;;                                   :text   (subs text start (+  end))
+;;                                   :entity (keyword (str (get item :key)))}))))
 
-             (+ (get item :offset) (get item :length)))
+;;              (+ (get item :offset) (get item :length)))
 
-      (cond-> result
-        (< offset (count text))
-        (as-> $ (let [start offset
-                      end   (count text)]
-                  (conj $ {:start start
-                           :end   end
-                           :text  (subs text start (+  end))})))))))
+;;       (cond-> result
+;;         (< offset (count text))
+;;         (as-> $ (let [start offset
+;;                       end   (count text)]
+;;                   (conj $ {:start start
+;;                            :end   end
+;;                            :text  (subs text start (+  end))})))))))
+
+
+(defn parse-ranges
+  [ranges]
+  (map (fn [{:keys [style] :as item}]
+         (if (str/starts-with? style "PENPOT$$")
+           (let [[k v] (str/split (subs style 8) ":")]
+             (assoc item
+                    :key (keyword (str/lower k))
+                    :val (str/lower v)))))
+       ranges))
+
+(defn get-style-index
+  [text ranges]
+  (loop [result (->> (range (count text))
+                     (mapv (constantly {}))
+                     (transient))
+         ranges (seq ranges)]
+    (if-let [{:keys [offset length] :as item} (first ranges)]
+      (recur (reduce (fn [result index]
+                       (let [prev (get result index)]
+                         (assoc! result index (assoc prev (:key item) (:val item)))))
+                     result
+                     (range offset (+ offset length)))
+             (rest ranges))
+      (persistent! result))))
+
+(defn get-sections*
+  [{:keys [text inlineStyleRanges] :as block}]
+  (let [ranges (parse-ranges inlineStyleRanges)]
+    (->> (get-style-index text ranges)
+         (d/enumerate)
+         (partition-by second)
+         (map (fn [part]
+                (let [start (ffirst part)
+                      end   (inc (first (last part)))]
+                  {:text  (subs text start end)
+                   :attrs (second (first part))}))))))
 
 (defn get-section-markup
   [section]
   (mf/create-element "span" #js {} #js [(:text section)]))
 
 (defn get-entity-markup
-  [section entity]
-  ;; (prn "get-entity-markup" 111 section)
-  ;; (prn "get-entity-markup" 222 entity)
-  (let [style (sts/generate-text-styles* (get entity :data))]
+  [section]
+  (let [style (sts/generate-text-styles* (:attrs section))]
     (mf/create-element "span" #js {:style style} #js [(:text section)])))
 
 (defn get-block-inline-markup
-  [shape block entities]
-  (let [sections (get-sections block)]
-    ;; (doseq [s sections]
-    ;;   (prn "section" s))
+  [shape block ]
+  (let [sections (get-sections* block)]
     (for [item sections]
-      (if-let [key (:entity item)]
-        (get-entity-markup item (get entities key))
-        (get-section-markup item)))))
+      (get-entity-markup item))))
 
 (defn get-block-markup
-  [shape block entities]
+  [shape block]
   (let [data  (get block :data)
         style (sts/generate-paragraph-styles* shape data)]
     (mf/create-element "div" #js {:dir "auto" :style style}
-                       (into-array (get-block-inline-markup shape block entities)))))
+                       (into-array (get-block-inline-markup shape block)))))
 
 (mf/defc text-content
   {::mf/wrap-props false}
@@ -108,7 +140,7 @@
       #_(when embed-fonts?
           [ste/embed-fontfaces-style {:content root}])
       (for [block blocks]
-        (get-block-markup shape block entities))]]))
+        (get-block-markup shape block))]]))
 
 ;; TODO
 (defn- retrieve-colors

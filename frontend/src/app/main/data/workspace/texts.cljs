@@ -9,9 +9,6 @@
 
 (ns app.main.data.workspace.texts
   (:require
-   ["slate" :as slate :refer [Editor Node Transforms Text]]
-   ["slate-react" :as rslate]
-
    ["draft-js" :as draft]
    [app.common.math :as mth]
    [app.common.attrs :as attrs]
@@ -27,6 +24,7 @@
    [cljs.spec.alpha :as s]
    [clojure.walk :as walk]
    [goog.object :as gobj]
+   [cuerdas.core :as str]
    [potok.core :as ptk]))
 
 (defn update-editor-state
@@ -35,29 +33,29 @@
     ptk/UpdateEvent
     (update [_ state]
       (if (some? estate)
-        (assoc state :workspace-editor estate)
-        (dissoc state :workspace-editor)))))
+        (assoc state :workspace-editor-state estate)
+        (dissoc state :workspace-editor-state)))))
 
 (defn initialize-editor-state
-  [{:keys [id content2] :as shape} decorator]
+  [{:keys [id content2] :as shape}]
   (ptk/reify ::initialize-editor-state
     ptk/UpdateEvent
     (update [_ state]
-      (update state :workspace-editor
+      (update state :workspace-editor-state
               (fn [_]
                 (if content2
-                  (as-> content2 $
-                    (clj->js $)
-                    (draft/convertFromRaw $)
-                    (.createWithContent ^js draft/EditorState $ decorator))
-                  (.createEmpty ^js draft/EditorState decorator)))))))
+                  (->> content2
+                       (clj->js)
+                       (draft/convertFromRaw)
+                       (.createWithContent ^js draft/EditorState))
+                  (.createEmpty ^js draft/EditorState)))))))
 
 (defn finalize-editor-state
   [{:keys [id content2] :as shape}]
   (ptk/reify ::update-editor-state
     ptk/WatchEvent
     (watch [_ state stream]
-      (let [estate  (:workspace-editor state)
+      (let [estate  (:workspace-editor-state state)
             content (-> (.getCurrentContent estate)
                         (draft/convertToRaw)
                         (js->clj :keywordize-keys true))]
@@ -77,18 +75,36 @@
                   fbk       (.getKey ^js fblock)
                   lbk       (.getKey ^js lblock)
                   lbl       (.getLength ^js lblock)
-                  selection (draft/SelectionState.
-                             #js {:anchorKey fbk
-                                  :anchorOffset 0
-                                  :focusKey lbk
-                                  :focusOffset lbl})]
+                  params    #js {:anchorKey fbk
+                                 :anchorOffset 0
+                                 :focusKey lbk
+                                 :focusOffset lbl}
+                  selection (draft/SelectionState. params)]
               (.forceSelection ^js draft/EditorState state selection)))]
     (ptk/reify ::editor-select-all
       ptk/UpdateEvent
       (update [_ state]
-        (d/update-when state :workspace-editor select-all)))))
+        (d/update-when state :workspace-editor-state select-all)))))
 
 ;; --- Helpers
+
+(defn attrs-to-styles
+  [attrs]
+  (reduce-kv (fn [res k v]
+               (let [k (str/upper (d/name k))
+                     v (str/upper (d/name v))]
+                 (conj res (str "PENPOT$$" k ":" v))))
+             #{}
+             attrs))
+
+(defn styles-to-attrs
+  [styles]
+  (persistent!
+   (reduce (fn [result style]
+             (let [[k v] (str/split (subs style 8) ":")]
+               (assoc! result (-> k str/lower keyword) (str/lower v))))
+           (transient {})
+           (seq styles))))
 
 (defn get-editor-current-block
   [state]
@@ -101,19 +117,20 @@
   (let [block (get-editor-current-block state)]
     (.getData ^js block)))
 
-(defn get-editor-current-entity-key
-  [state]
-  (let [block   (get-editor-current-block ^js state)
-        offset  (.. state getSelection getStartOffset)]
-    (.getEntityAt ^js block offset)))
+;; (defn get-editor-current-entity-key
+;;   [state]
+;;   (let [block   (get-editor-current-block ^js state)
+;;         offset  (.. state getSelection getStartOffset)]
+;;     (.getEntityAt ^js block offset)))
 
-(defn get-editor-current-entity-data
+(defn get-editor-current-styles
   [state]
-  (let [content (.getCurrentContent ^js state)]
-    (when-let [key (get-editor-current-entity-key state)]
-      (.. content (getEntity key) (getData)))))
+  (let [styles (.getCurrentInlineStyle ^js state)]
+    (styles-to-attrs styles)))
 
-(defn get-entity-data
+
+;; TODO
+(defn get-style-data
   [{:keys [content2] :as shape}]
   (reduce (fn [res item]
             (d/merge res (:data item)))
@@ -127,14 +144,6 @@
           {}
           (:blocks content2)))
 
-(defn current-text-values
-  [{:keys [editor attrs shape]}]
-  (if editor
-    (-> (get-editor-current-entity-data editor)
-        (js->clj :keywordize-keys true)
-        (select-keys attrs))
-    (-> (get-entity-data shape)
-        (select-keys attrs))))
 
 (defn immutable->clj
   [obj]
@@ -143,12 +152,21 @@
           (clj->js :keywordize-keys true)))
 
 (defn current-paragraph-values
-  [{:keys [editor attrs shape]}]
-  (if editor
-    (-> (get-editor-current-block-data editor)
+  [{:keys [editor-state attrs shape]}]
+  (if editor-state
+    (-> (get-editor-current-block-data editor-state)
         (immutable->clj)
         (select-keys attrs))
     (-> (get-block-data shape)
+        (select-keys attrs))))
+
+(defn current-text-values
+  [{:keys [editor-state attrs shape]}]
+  (if editor-state
+    (-> (get-editor-current-styles editor-state)
+        #_(js->clj :keywordize-keys true)
+        (select-keys attrs))
+    (-> (get-style-data shape)
         (select-keys attrs))))
 
 (defn- merge-attrs
@@ -160,41 +178,19 @@
              node
              attrs))
 
-(defn impl-update-shape-attrs
-  ([shape attrs]
-   ;; NOTE: this arity is used in workspace for properly update the
-   ;; fill color using colorpalette, then the predicate should be
-   ;; defined.
-   (impl-update-shape-attrs shape attrs nil #_is-text-node?))
-  ([{:keys [type content] :as shape} attrs pred]
-   (assert (= :text type) "should be shape type")
-   #_(let [merge-attrs #(merge-attrs % attrs)]
-     (update shape :content #(transform-nodes pred merge-attrs %)))))
+(defn update-shape-block-attrs
+  [shape attrs]
+  (d/update-in-when shape [:content2 :blocks]
+                    (fn [blocks]
+                      (mapv #(update % :data merge-attrs attrs) blocks))))
 
-;; (defn update-attrs
-;;   [{:keys [id editor attrs pred split]
-;;     :or {pred is-text-node?}}]
-;;   (if editor
-;;     (ptk/reify ::update-attrs
-;;       ptk/EffectEvent
-;;       (effect [_ state stream]
-;;         (editor-set! editor (clj->js attrs) #js {:match pred :split split})))
-
-;;     (ptk/reify ::update-attrs
-;;       ptk/WatchEvent
-;;       (watch [_ state stream]
-;;         (let [objects (dwc/lookup-page-objects state)
-;;               shape (get objects id)
-;;               ids (cond (= (:type shape) :text)  [id]
-;;                         (= (:type shape) :group) (cp/get-children id objects))]
-;;           (rx/of (dwc/update-shapes ids #(impl-update-shape-attrs % attrs pred))))))))
 
 ;; --- TEXT EDITION IMPL
 
 ;; TODO: handle non editor changes
 (defn update-paragraph-attrs
   [{:keys [id attrs]}]
-  (letfn [(update-current-block [state]
+  (letfn [(update-editor-current-block [state]
             (loop [selection (.getSelection ^js state)
                    start-key (.getStartKey ^js selection)
                    end-key   (.getEndKey ^js selection)
@@ -220,53 +216,82 @@
     (ptk/reify ::update-paragraph-attrs
       ptk/UpdateEvent
       (update [_ state]
-        (update state :workspace-editor update-current-block)))))
+        (d/update-when state :workspace-editor-state update-editor-current-block))
 
-;; (defn editor-current-entity
-;;   [state]
-;;   (let [content      (.getCurrentContent ^js state)
-;;         selection    (.getSelection ^js state)
-;;         start-key    (.getStartKey ^js selection)
-;;         start-offset (.getStartOffset ^js selection)
-;;         block        (.getBlockForKey ^js content start-key)]
-;;     (.getEntityAt ^js block start-offset)))
-
-;; (defn editor-current-entities
-;;   [state]
-;;   (let [content      (.getCurrentContent ^js state)
-;;         selection    (.getSelection ^js state)
-;;         start-key    (.getStartKey ^js selection)
-;;         start-offset (.getStartOffset ^js selection)
-;;         end-offset   (.getEndOffset ^js selection)
-;;         block        (.getBlockForKey ^js content start-key)]
-;;     (reduce (fn [res offset]
-;;               (conj res (.getEntityAt ^js block offset)))
-;;             #{}
-;;             (range start-offset end-offset))))
+      ptk/WatchEvent
+      (watch [_ state stream]
+        (when-not (:workspace-editor-state state)
+          (let [objects (dwc/lookup-page-objects state)
+                shape   (get objects id)
+                ids     (cond (= (:type shape) :text)  [id]
+                              (= (:type shape) :group) (cp/get-children id objects))]
+            (rx/of (dwc/update-shapes ids #(update-shape-block-attrs % attrs)))))))))
 
 (defn update-text-attrs
   [{:keys [id attrs]}]
-  (letfn [(add-entity [state]
-            (let [attrs     (clj->js attrs)
-                  selection (.getSelection state)
+  (letfn [(change-inline-style [state]
+            (prn "update-text-attrs" attrs)
+            (let [selection (.getSelection state)
                   content   (.getCurrentContent ^js state)
-                  attrs     (-> (get-editor-current-entity-data state)
-                                (obj/merge attrs))
-                  content   (.createEntity ^js content
-                                           "PENPOT"
-                                           "MUTABLE"
-                                           attrs)
-                  ekey      (.getLastCreatedEntityKey ^js content)
-                  state     (.set ^js draft/EditorState state #js {:currentContent content})
-                  modifier  (.applyEntity draft/Modifier
-                                          (.getCurrentContent ^js state)
-                                          (.getSelection ^js state)
-                                          ekey)]
-              (.push draft/EditorState state modifier "apply-entity")))]
+                  styles    (attrs-to-styles attrs)]
+              (reduce (fn [state style]
+                        (let [modifier (.applyInlineStyle draft/Modifier
+                                                          (.getCurrentContent ^js state)
+                                                          selection
+                                                          style)]
+                          (.push draft/EditorState state modifier "change-inline-style")))
+                      state
+                      styles)))]
+
     (ptk/reify ::update-text-attrs
       ptk/UpdateEvent
       (update [_ state]
-        (update state :workspace-editor add-entity)))))
+        (d/update-when state :workspace-editor-state change-inline-style))
+
+      #_ptk/WatchEvent
+      #_(watch [_ state stream]
+        (when-not (:workspace-editor-state state)
+          (let [objects (dwc/lookup-page-objects state)
+                shape   (get objects id)
+                ids     (cond (= (:type shape) :text)  [id]
+                              (= (:type shape) :group) (cp/get-children id objects))]
+            (rx/of (dwc/update-shapes ids #(update-shape-attrs % attrs)))))))))
+
+
+;; (defn update-text-attrs
+;;   [{:keys [id attrs]}]
+;;   (letfn [(add-entity [state]
+;;             (let [attrs     (clj->js attrs)
+;;                   selection (.getSelection state)
+;;                   content   (.getCurrentContent ^js state)
+;;                   attrs     (-> (get-editor-current-entity-data state)
+;;                                 (obj/merge attrs))
+;;                   content   (.createEntity ^js content
+;;                                            "PENPOT"
+;;                                            "MUTABLE"
+;;                                            attrs)
+;;                   ekey      (.getLastCreatedEntityKey ^js content)
+;;                   state     (.set ^js draft/EditorState state #js {:currentContent content})
+;;                   modifier  (.applyEntity draft/Modifier
+;;                                           (.getCurrentContent ^js state)
+;;                                           (.getSelection ^js state)
+;;                                           ekey)]
+;;               (.push draft/EditorState state modifier "apply-entity")))]
+;;     (ptk/reify ::update-text-attrs
+;;       ptk/UpdateEvent
+;;       (update [_ state]
+;;         (d/update-when state :workspace-editor-state add-entity))
+
+;;       ptk/WatchEvent
+;;       (watch [_ state stream]
+;;         (when-not (:workspace-editor-state state)
+;;           (let [objects (dwc/lookup-page-objects state)
+;;                 shape   (get objects id)
+;;                 ids     (cond (= (:type shape) :text)  [id]
+;;                               (= (:type shape) :group) (cp/get-children id objects))]
+;;             (rx/of (dwc/update-shapes ids #(update-shape-attrs % attrs)))))))))
+
+
 
 
 ;; --- RESIZE UTILS

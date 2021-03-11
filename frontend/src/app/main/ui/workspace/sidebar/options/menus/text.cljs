@@ -179,6 +179,7 @@
 
         emit-update!
         (fn [id attrs]
+          (prn "emit-update!" id attrs)
           #_(let [attrs (select-keys attrs root-attrs)]
             (when-not (empty? attrs)
               (st/emit! (dwt/update-root-attrs {:id id :attrs attrs}))))

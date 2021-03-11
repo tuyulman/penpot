@@ -118,7 +118,6 @@
         [:& text-static-content {:shape shape}]
         [:& text-resize-content {:shape shape}])]
 
-
      (when (and (not ghost?) edition?)
        [:& editor/text-shape-edit {:key (str "editor" (:id shape))
                                    :shape shape}])

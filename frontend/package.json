@@ -39,7 +39,6 @@
     "highlight.js": "^10.6.0",
     "humanize-duration": "~3.25.0",
     "js-beautify": "^1.13.5",
-    "luxon": "~1.25.0",
     "mousetrap": "^1.6.5",
     "randomcolor": "^0.6.2",
     "react": "~17.0.1",

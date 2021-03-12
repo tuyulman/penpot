@@ -150,48 +150,6 @@
       "o:" (subs v 2)
       v)))
 
-(defn parse-style-ranges
-  "Parses draft-js style ranges, converting encoded style name into a
-  key/val pair of data."
-  [ranges]
-  (map (fn [{:keys [style] :as item}]
-         (if (str/starts-with? style "PENPOT$$$")
-           (let [[_ k v] (str/split style "$$$" 3)]
-             (assoc item
-                    :key (keyword k)
-                    :val (decode-style-value v)))))
-       ranges))
-
-(defn build-style-index
-  "Generates a character based index with associated styles map."
-  [text ranges]
-  (loop [result (->> (range (count text))
-                     (mapv (constantly {}))
-                     (transient))
-         ranges (seq ranges)]
-    (if-let [{:keys [offset length] :as item} (first ranges)]
-      (recur (reduce (fn [result index]
-                       (let [prev (get result index)]
-                         (assoc! result index (assoc prev (:key item) (:val item)))))
-                     result
-                     (range offset (+ offset length)))
-             (rest ranges))
-      (persistent! result))))
-
-(defn parse-sections
-  "Parses the draft-js block in to contiguos sections based on inline
-  styles associated with ranges of text."
-  [{:keys [text inlineStyleRanges] :as block}]
-  (let [ranges (parse-style-ranges inlineStyleRanges)]
-    (->> (build-style-index text ranges)
-         (d/enumerate)
-         (partition-by second)
-         (map (fn [part]
-                (let [start (ffirst part)
-                      end   (inc (first (last part)))]
-                  {:text  (subs text start end)
-                   :attrs (second (first part))}))))))
-
 (defn encode-style
   [key val]
   (let [k (d/name key)
@@ -228,3 +186,158 @@
            (transient #{})
            (seq styles))))
 
+(defn parse-style-ranges
+  "Parses draft-js style ranges, converting encoded style name into a
+  key/val pair of data."
+  [ranges]
+  (map (fn [{:keys [style] :as item}]
+         (if (str/starts-with? style "PENPOT$$$")
+           (let [[_ k v] (str/split style "$$$" 3)]
+             (assoc item
+                    :key (keyword k)
+                    :val (decode-style-value v)))))
+       ranges))
+
+(defn build-style-index
+  "Generates a character based index with associated styles map."
+  [text ranges]
+  (loop [result (->> (range (count text))
+                     (mapv (constantly {}))
+                     (transient))
+         ranges (seq ranges)]
+    (if-let [{:keys [offset length] :as item} (first ranges)]
+      (recur (reduce (fn [result index]
+                       (let [prev (get result index)]
+                         (assoc! result index (assoc prev (:key item) (:val item)))))
+                     result
+                     (range offset (+ offset length)))
+             (rest ranges))
+      (persistent! result))))
+
+;; NOTE: this function will become useles
+(defn parse-sections
+  "Parses the draft-js block in to contiguos sections based on inline
+  styles associated with ranges of text."
+  [{:keys [text inlineStyleRanges] :as block}]
+  (let [ranges (parse-style-ranges inlineStyleRanges)]
+    (->> (build-style-index text ranges)
+         (d/enumerate)
+         (partition-by second)
+         (map (fn [part]
+                (let [start (ffirst part)
+                      end   (inc (first (last part)))]
+                  {:start start
+                   :end   end
+                   :text  (subs text start end)
+                   :attrs (second (first part))}))))))
+
+(defn draft->penpot
+  [{:keys [blocks]}]
+  (letfn [(build-text [text part]
+            (let [start (ffirst part)
+                  end   (inc (first (last part)))]
+              (-> (second (first part))
+                  (assoc :text (subs text start end)))))
+
+          (split-texts [text ranges]
+            (->> (parse-style-ranges ranges)
+                 (build-style-index text)
+                 (d/enumerate)
+                 (partition-by second)
+                 (mapv (partial build-text text))))
+
+          (build-paragraph [{:keys [key text inlineStyleRanges data]}]
+            (-> data
+                (assoc :key key)
+                (assoc :type "paragraph")
+                (assoc :children (split-texts text inlineStyleRanges))))]
+
+    {:type "root"
+     :children
+     [{:type "paragraph-set"
+       :children (mapv build-paragraph blocks)}]}))
+
+;; (defn- text-node->style-ranges
+;;   [{:keys [text] :as node} offset]
+;;   (let [node (dissoc node :text)]
+;;     (when (seq node)
+;;       (->> (attrs-to-styles node)
+;;            (map (fn [style]
+;;                   {:offset offset
+;;                    :length (alength text)
+;;                    :style style}))))))
+
+
+;; (defn- paragraph->draft-block
+;;   [{:keys [key children] :as paragraph}]
+;;   (let [data (dissoc paragraph :type :children :key)]
+;;     (loop [children (seq children)
+;;            text     ""
+;;            ranges   []]
+;;       (if-let [item (first children)]
+;;         (recur (rest children)
+;;                (str text (:text item))
+;;                (into ranges (text-node->style-ranges item (alength text))))
+;;         {:key key
+;;          :depth 0
+;;          :data data
+;;          :type "unstyled"
+;;          :text text
+;;          :inlineStyleRanges ranges}))))
+
+(defn penpot->draft
+  [node]
+  (letfn [(build-keypairs [children]
+            (->> children
+                 (map #(dissoc % :key :text))
+                 (remove empty?)
+                 (mapcat vec)
+                 (into #{})
+                 (seq)))
+
+          (paragraph-block [{:keys [key children] :as paragraph}]
+            (loop [ranges []
+                   items  (build-keypairs children)]
+              (if-let [[k v] (first items)]
+                (let [new-ranges (loop [children (seq children)
+                                        start    nil
+                                        offset   0
+                                        ranges   []]
+                                   (if-let [child (first children)]
+                                     (if (= v (get child k ::novalue))
+                                       (do
+                                         (recur (rest children)
+                                                (if (nil? start) offset start)
+                                                (+ offset (count (:text child)))
+                                                ranges))
+                                       (do
+                                         (if (some? start)
+                                           (recur (rest children)
+                                                  nil
+                                                  (+ offset (count (:text child)))
+                                                  (conj ranges {:offset start
+                                                                :length (- offset start)
+                                                                :style (encode-style k v)}))
+                                           (recur (rest children)
+                                                  start
+                                                  (+ offset (count (:text child)))
+                                                  ranges))))
+                                     (cond-> ranges
+                                       (some? start)
+                                       (conj {:offset start
+                                              :length (- offset start)
+                                              :style (encode-style k v)}))))]
+                  (recur (into ranges new-ranges)
+                         (rest items)))
+
+                {:key key
+                 :depth 0
+                 :data (dissoc paragraph :key :children :type)
+                 :type "unstyled"
+                 :entityRanges []
+                 :inlineStyleRanges ranges})))]
+
+    {:blocks (->> (tree-seq map? :children node)
+                  (filter #(= (:type %) "paragraph"))
+                  (mapv paragraph-block))
+     :entityMap {}}))

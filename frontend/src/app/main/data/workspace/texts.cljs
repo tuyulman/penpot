@@ -77,7 +77,17 @@
         (if ^boolean (.hasText ^js content)
           (let [content (-> content
                             (draft/convertToRaw)
-                            (js->clj :keywordize-keys true))]
+                            (js->clj :keywordize-keys true))
+                ;; content (txt/penpot->draft (txt/draft->penpot content))
+                ]
+            (println "=============================")
+            (println "====== draft->penpot:")
+            (cljs.pprint/pprint (txt/draft->penpot content))
+            (println "====== original:")
+            (cljs.pprint/pprint content)
+            (println "====== penpot->draft:")
+            (cljs.pprint/pprint (txt/penpot->draft (txt/draft->penpot content)))
+
             (rx/merge
              (rx/of (update-editor-state nil))
              (when (not= content2 content)

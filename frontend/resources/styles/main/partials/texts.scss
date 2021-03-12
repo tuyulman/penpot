@@ -1,16 +1,41 @@
-foreignObject .DraftEditor-root,
-foreignObject .rich-text {
-  color: $color-black;
-  height: 100%;
-  white-space: pre-wrap;
-  font-family: sourcesanspro;
+foreignObject {
+  .text-editor, .rich-text {
+    color: $color-black;
+    height: 100%;
+    white-space: pre-wrap;
+    font-family: sourcesanspro;
 
-  div {
-    line-height: inherit;
-    user-select: all;
-  }
+    div {
+      line-height: inherit;
+      user-select: all;
+    }
 
-  span {
-    line-height: inherit;
+    span {
+      line-height: inherit;
+    }
+
+    .paragraph-set, .DraftEditor-root {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    &.align-top {
+      .paragraph-set, .DraftEditor-root {
+        justify-content: flex-start;
+      }
+    }
+
+    &.align-center {
+      .paragraph-set, .DraftEditor-root {
+        justify-content: center;
+      }
+    }
+
+    &.align-bottom {
+      .paragraph-set, .DraftEditor-root {
+        justify-content: flex-end;
+      }
+    }
   }
 }

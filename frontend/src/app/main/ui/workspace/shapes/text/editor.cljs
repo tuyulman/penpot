@@ -177,7 +177,11 @@
 
     (mf/use-layout-effect on-mount)
 
-    [:div.text-editor {:ref self-ref}
+    [:div.text-editor {:ref self-ref
+                       :class (dom/classnames
+                               :align-top (= (:vertical-align shape "top") "top")
+                               :align-center (= (:vertical-align shape) "center")
+                               :align-bottom (= (:vertical-align shape) "bottom"))}
      [:style
       "span { line-height: inherit; }
       .gradient { background: var(--text-color); -webkit-text-fill-color: transparent; -webkit-background-clip: text;"]

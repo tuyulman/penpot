@@ -137,6 +137,13 @@
 
 ;; --- TEXT EDITION IMPL
 
+(defn update-root-attrs
+  [{:keys [id attrs]}]
+  (ptk/reify ::update-root-attrs
+    ptk/WatchEvent
+    (watch [_ state stream]
+      (rx/of (dwc/update-shapes [id] #(attrs/merge % attrs))))))
+
 (defn update-paragraph-attrs
   [{:keys [id attrs]}]
   (letfn [(update-shape-blocks [shape]

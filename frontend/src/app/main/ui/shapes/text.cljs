@@ -9,6 +9,7 @@
 
 (ns app.main.ui.shapes.text
   (:require
+   [app.util.dom :as dom]
    [app.common.data :as d]
    [app.common.geom.matrix :as gmt]
    [app.common.geom.shapes :as geom]
@@ -50,19 +51,22 @@
         content  (:content2 shape)
         entities (get content :entityMap)
         blocks   (get content :blocks)
-        embed?   (obj/get props "embed-fonts?")
-        style    (sts/generate-root-styles* shape)]
+        embed?   (obj/get props "embed-fonts?")]
 
     [:div.rich-text
-     {:style style
+     {:class (dom/classnames
+              :align-top (= (:vertical-align shape "top") "top")
+              :align-center (= (:vertical-align shape) "center")
+              :align-bottom (= (:vertical-align shape) "bottom"))
       :xmlns "http://www.w3.org/1999/xhtml"}
-     [:*
-      [:style ".gradient { background: var(--text-color); -webkit-text-fill-color: transparent; -webkit-background-clip: text;"]
-      ;; TODO
-      #_(when embed-fonts?
-          [ste/embed-fontfaces-style {:content root}])
-      (for [block blocks]
-        (get-block-markup shape block))]]))
+     [:style ".gradient { background: var(--text-color); -webkit-text-fill-color: transparent; -webkit-background-clip: text;"]
+     ;; TODO
+     #_(when embed-fonts?
+         [ste/embed-fontfaces-style {:content root}])
+     [:div.paragraph-set
+      [:div.paragraphs
+       (for [block blocks]
+         (get-block-markup shape block))]]]))
 
 ;; TODO
 (defn- retrieve-colors

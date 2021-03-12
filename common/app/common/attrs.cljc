@@ -76,13 +76,12 @@
 
        (persistent! result)))))
 
-;; (defn merge
-;;   "Attrs specific merge function."
-;;   [obj attrs]
-;;   (reduce-kv (fn [obj k v]
-;;                (if (nil? v)
-;;                  (dissoc obj k)
-;;                  (assoc obj k v)))
-;;              obj
-;;              attrs))
-
+(defn merge
+  "Attrs specific merge function."
+  [obj attrs]
+  (reduce-kv (fn [obj k v]
+               (if (nil? v)
+                 (dissoc obj k)
+                 (assoc obj k v)))
+             obj
+             attrs))

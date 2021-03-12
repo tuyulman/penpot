@@ -242,6 +242,7 @@
 (s/def :internal.shape/index integer?)
 (s/def :internal.shape/shadow ::shadow)
 (s/def :internal.shape/blur ::blur)
+(s/def :internal.shape/vertical-align #{"center" "top" "bottom"})
 
 (s/def :internal.shape/x1 ::safe-number)
 (s/def :internal.shape/y1 ::safe-number)
@@ -318,6 +319,7 @@
                    :internal.shape/text-align
                    :internal.shape/transform
                    :internal.shape/transform-inverse
+                   :internal.shape/vertical-align
                    :internal.shape/width
                    :internal.shape/height
                    :internal.shape/interactions

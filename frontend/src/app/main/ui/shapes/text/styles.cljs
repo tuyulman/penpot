@@ -16,11 +16,19 @@
    [app.util.text :as txt]
    [cuerdas.core :as str]))
 
-;; TODO: there are no paragraph-set inside editor, and we cant change
-;; styles of analogous elements becase we have no control of it. Maybe
-;; using css properties can solve this.
+(defn generate-root-styles*
+  [shape]
+  (let [valign (or (:vertical-align shape "top"))
+        base   #js {:height (or (:height shape) "100%")
+                    :width  (or (:width shape) "100%")}]
+    (cond-> base
+      (= valign "top")     (obj/set! "justifyContent" "flex-start")
+      (= valign "center")  (obj/set! "justifyContent" "center")
+      (= valign "bottom")  (obj/set! "justifyContent" "flex-end"))))
+
+
 (defn generate-paragraph-set-styles*
-  [{:keys [grow-type] :as shape}]
+  [grow-type]
   ;; This element will control the auto-width/auto-height size for the
   ;; shape. The properties try to adjust to the shape and "overflow" if
   ;; the shape is not big enough.

@@ -21,11 +21,29 @@
    [app.main.fonts :as fonts]
    [app.util.object :as obj]
    [app.util.text :as txt]
+   [app.util.timers :as ts]
    [beicon.core :as rx]
    [cljs.spec.alpha :as s]
    [goog.object :as gobj]
    [cuerdas.core :as str]
    [potok.core :as ptk]))
+
+(defn update-editor
+  [editor]
+  (ptk/reify ::update-editor
+    ptk/UpdateEvent
+    (update [_ state]
+      (if (some? editor)
+        (assoc state :workspace-editor editor)
+        (dissoc state :workspace-editor)))))
+
+(defn focus-editor
+  []
+  (ptk/reify ::focus-editor
+    ptk/EffectEvent
+    (effect [_ state stream]
+      (when-let [editor (:workspace-editor state)]
+        (ts/schedule #(.focus ^js editor))))))
 
 (defn update-editor-state
   [estate]
@@ -44,15 +62,14 @@
       (update state :workspace-editor-state
               (fn [_]
                 (if content2
-                  (->> content2
-                       (clj->js)
+                  (->> (clj->js content2)
                        (draft/convertFromRaw)
                        (.createWithContent ^js draft/EditorState))
                   (.createEmpty ^js draft/EditorState)))))))
 
 (defn finalize-editor-state
   [{:keys [id content2] :as shape}]
-  (ptk/reify ::update-editor-state
+  (ptk/reify ::finalize-editor-state
     ptk/WatchEvent
     (watch [_ state stream]
       (let [estate  (:workspace-editor-state state)
@@ -148,7 +165,8 @@
   (ptk/reify ::update-root-attrs
     ptk/WatchEvent
     (watch [_ state stream]
-      (rx/of (dwc/update-shapes [id] #(attrs/merge % attrs))))))
+      (rx/of (dwc/update-shapes [id] #(attrs/merge % attrs))
+             (focus-editor)))))
 
 (defn update-paragraph-attrs
   [{:keys [id attrs]}]
@@ -186,7 +204,8 @@
 
       ptk/WatchEvent
       (watch [_ state stream]
-        (when-not (:workspace-editor-state state)
+        (if (:workspace-editor-state state)
+          (rx/of focus-editor)
           (let [objects (dwc/lookup-page-objects state)
                 shape   (get objects id)
                 ids     (cond (= (:type shape) :text)  [id]
@@ -250,7 +269,8 @@
 
       ptk/WatchEvent
       (watch [_ state stream]
-        (when-not (:workspace-editor-state state)
+        (if (:workspace-editor-state state)
+          (rx/of (focus-editor))
           (let [objects (dwc/lookup-page-objects state)
                 shape   (get objects id)
                 ids     (cond (= (:type shape) :text)  [id]

@@ -44,28 +44,25 @@
 (mf/defc text-content
   {::mf/wrap-props false}
   [props]
-  (let [shape    (obj/get props "shape")
-        content  (:content2 shape)
-        entities (get content :entityMap)
-        blocks   (get content :blocks)
-        embed?   (obj/get props "embed-fonts?")]
+  (let [shape     (obj/get props "shape")
+        grow-type (obj/get props "grow-type")
+        content   (:content2 shape)
+        entities  (get content :entityMap)
+        blocks    (get content :blocks)
+        embed?    (obj/get props "embed-fonts?")]
 
     [:div.root.rich-text
-     {:class (dom/classnames
-              :align-top (= (:vertical-align shape "top") "top")
-              :align-center (= (:vertical-align shape) "center")
-              :align-bottom (= (:vertical-align shape) "bottom"))
+     {:style (sts/generate-root-styles* shape)
       :xmlns "http://www.w3.org/1999/xhtml"}
      [:style ".gradient { background: var(--text-color); -webkit-text-fill-color: transparent; -webkit-background-clip: text;"]
      ;; TODO
      #_(when embed-fonts?
          [ste/embed-fontfaces-style {:content root}])
-     [:div.paragraph-set {:style (sts/generate-paragraph-set-styles* shape)}
-      [:div.paragraphs
-       (for [block blocks]
-         (get-block-markup shape block))]]]))
+     [:div.paragraph-set {:style (sts/generate-paragraph-set-styles* grow-type)}
+      (for [block blocks]
+        (get-block-markup shape block))]]))
 
-;; TODO
+;; TODO: fixme
 (defn- retrieve-colors
   [shape]
   (let [colors (->> shape
@@ -96,4 +93,5 @@
                      :height (if (#{:auto-height :auto-width} grow-type) 100000 height)
                      :ref ref}
      [:& text-content {:shape shape
+                       :grow-type grow-type
                        :embed-fonts? embed-fonts?}]]))

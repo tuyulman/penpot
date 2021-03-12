@@ -10,7 +10,6 @@
 (ns app.main.ui.workspace.shapes.text.editor
   (:require
    ["draft-js" :as draft]
-   ["immutable" :as imm]
    [okulary.core :as l]
    [cuerdas.core :as str]
    [goog.events :as events]
@@ -88,14 +87,6 @@
 
         self-ref      (mf/use-ref)
 
-        ;; on-close
-        ;; (fn []
-        ;;   (st/emit! dw/clear-edition-mode)
-
-        ;;   #_(when (= 0 (content-size @content-var))
-        ;;     (st/emit! (dws/deselect-shape id)
-        ;;               (dw/delete-shapes [id]))))
-
         on-click-outside
         (fn [event]
           (let [target     (dom/get-target event)
@@ -147,7 +138,7 @@
         on-editor
         (mf/use-callback
          (fn [editor]
-           ;; (mf/set-ref-val! editor-ref editor)
+           (st/emit! (dwt/update-editor editor))
            (when editor
              (.focus ^js editor))))
         ]

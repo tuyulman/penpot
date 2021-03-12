@@ -259,38 +259,28 @@
 
 (defn penpot->draft
   [node]
-  (letfn [(build-keypairs [children]
-            (->> children
-                 (map #(dissoc % :key :text))
-                 (remove empty?)
-                 (mapcat vec)
-                 (into #{})
-                 (seq)))
-
-          (get-ranges-for-keypair [children k v]
+  (letfn [(calculate-attr-ranges [children k v]
             (loop [children (seq children)
                    start    nil
                    offset   0
                    ranges   []]
               (if-let [child (first children)]
                 (if (= v (get child k ::novalue))
-                  (do
+                  (recur (rest children)
+                         (if (nil? start) offset start)
+                         (+ offset (count (:text child)))
+                         ranges)
+                  (if (some? start)
                     (recur (rest children)
-                           (if (nil? start) offset start)
+                           nil
                            (+ offset (count (:text child)))
-                           ranges))
-                  (do
-                    (if (some? start)
-                      (recur (rest children)
-                             nil
-                             (+ offset (count (:text child)))
-                             (conj ranges {:offset start
-                                           :length (- offset start)
-                                           :style (encode-style k v)}))
-                      (recur (rest children)
-                             start
-                             (+ offset (count (:text child)))
-                             ranges))))
+                           (conj ranges {:offset start
+                                         :length (- offset start)
+                                         :style (encode-style k v)}))
+                    (recur (rest children)
+                           start
+                           (+ offset (count (:text child)))
+                           ranges)))
                 (cond-> ranges
                   (some? start)
                   (conj {:offset start
@@ -298,22 +288,26 @@
                          :style (encode-style k v)})))))
 
 
-          (paragraph-block [{:keys [key children] :as paragraph}]
-            (loop [ranges []
-                   items  (build-keypairs children)]
-              (if-let [[k v] (first items)]
-                (recur (into ranges (get-ranges-for-keypair children k v))
-                       (rest items))
+          (calculate-ranges [{:keys [key children] :as paragraph}]
+            (reduce (fn [ranges [k v]]
+                      (into ranges (calculate-attr-ranges children k v)))
+                    []
+                    (->> children
+                         (map #(dissoc % :key :text))
+                         (remove empty?)
+                         (mapcat vec)
+                         (into #{}))))
 
-                {:key key
-                 :depth 0
-                 :text (apply str (map :text children))
-                 :data (dissoc paragraph :key :children :type)
-                 :type "unstyled"
-                 :entityRanges []
-                 :inlineStyleRanges ranges})))]
+          (build-block [{:keys [key children] :as paragraph}]
+            {:key key
+             :depth 0
+             :text (apply str (map :text children))
+             :data (dissoc paragraph :key :children :type)
+             :type "unstyled"
+             :entityRanges []
+             :inlineStyleRanges (calculate-ranges paragraph)})]
 
     {:blocks (->> (tree-seq map? :children node)
                   (filter #(= (:type %) "paragraph"))
-                  (mapv paragraph-block))
+                  (mapv build-block))
      :entityMap {}}))

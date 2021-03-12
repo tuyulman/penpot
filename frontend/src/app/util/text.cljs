@@ -257,34 +257,6 @@
      [{:type "paragraph-set"
        :children (mapv build-paragraph blocks)}]}))
 
-;; (defn- text-node->style-ranges
-;;   [{:keys [text] :as node} offset]
-;;   (let [node (dissoc node :text)]
-;;     (when (seq node)
-;;       (->> (attrs-to-styles node)
-;;            (map (fn [style]
-;;                   {:offset offset
-;;                    :length (alength text)
-;;                    :style style}))))))
-
-
-;; (defn- paragraph->draft-block
-;;   [{:keys [key children] :as paragraph}]
-;;   (let [data (dissoc paragraph :type :children :key)]
-;;     (loop [children (seq children)
-;;            text     ""
-;;            ranges   []]
-;;       (if-let [item (first children)]
-;;         (recur (rest children)
-;;                (str text (:text item))
-;;                (into ranges (text-node->style-ranges item (alength text))))
-;;         {:key key
-;;          :depth 0
-;;          :data data
-;;          :type "unstyled"
-;;          :text text
-;;          :inlineStyleRanges ranges}))))
-
 (defn penpot->draft
   [node]
   (letfn [(build-keypairs [children]
@@ -295,43 +267,47 @@
                  (into #{})
                  (seq)))
 
+          (get-ranges-for-keypair [children k v]
+            (loop [children (seq children)
+                   start    nil
+                   offset   0
+                   ranges   []]
+              (if-let [child (first children)]
+                (if (= v (get child k ::novalue))
+                  (do
+                    (recur (rest children)
+                           (if (nil? start) offset start)
+                           (+ offset (count (:text child)))
+                           ranges))
+                  (do
+                    (if (some? start)
+                      (recur (rest children)
+                             nil
+                             (+ offset (count (:text child)))
+                             (conj ranges {:offset start
+                                           :length (- offset start)
+                                           :style (encode-style k v)}))
+                      (recur (rest children)
+                             start
+                             (+ offset (count (:text child)))
+                             ranges))))
+                (cond-> ranges
+                  (some? start)
+                  (conj {:offset start
+                         :length (- offset start)
+                         :style (encode-style k v)})))))
+
+
           (paragraph-block [{:keys [key children] :as paragraph}]
             (loop [ranges []
                    items  (build-keypairs children)]
               (if-let [[k v] (first items)]
-                (let [new-ranges (loop [children (seq children)
-                                        start    nil
-                                        offset   0
-                                        ranges   []]
-                                   (if-let [child (first children)]
-                                     (if (= v (get child k ::novalue))
-                                       (do
-                                         (recur (rest children)
-                                                (if (nil? start) offset start)
-                                                (+ offset (count (:text child)))
-                                                ranges))
-                                       (do
-                                         (if (some? start)
-                                           (recur (rest children)
-                                                  nil
-                                                  (+ offset (count (:text child)))
-                                                  (conj ranges {:offset start
-                                                                :length (- offset start)
-                                                                :style (encode-style k v)}))
-                                           (recur (rest children)
-                                                  start
-                                                  (+ offset (count (:text child)))
-                                                  ranges))))
-                                     (cond-> ranges
-                                       (some? start)
-                                       (conj {:offset start
-                                              :length (- offset start)
-                                              :style (encode-style k v)}))))]
-                  (recur (into ranges new-ranges)
-                         (rest items)))
+                (recur (into ranges (get-ranges-for-keypair children k v))
+                       (rest items))
 
                 {:key key
                  :depth 0
+                 :text (apply str (map :text children))
                  :data (dissoc paragraph :key :children :type)
                  :type "unstyled"
                  :entityRanges []

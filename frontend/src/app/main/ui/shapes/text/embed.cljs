@@ -5,43 +5,63 @@
 ;; This Source Code Form is "Incompatible With Secondary Licenses", as
 ;; defined by the Mozilla Public License, v. 2.0.
 ;;
-;; Copyright (c) 2020 UXBOX Labs SL
+;; Copyright (c) 2020-2021 UXBOX Labs SL
 
 (ns app.main.ui.shapes.text.embed
   (:require
-   [clojure.set :as set]
-   [promesa.core :as p]
-   [cuerdas.core :as str]
-   [rumext.alpha :as mf]
+   [app.common.data :as d]
    [app.main.data.fetch :as df]
    [app.main.fonts :as fonts]
-   [app.util.text :as ut]))
+   [app.util.object :as obj]
+   [app.util.text :as txt]
+   [clojure.set :as set]
+   [cuerdas.core :as str]
+   [promesa.core :as p]
+   [rumext.alpha :as mf]))
 
-(defonce font-face-template "
+(def font-face-template "
 /* latin */
 @font-face {
-  font-family: '$0';
-  font-style: $3;
-  font-weight: $2;
+  font-family: '%(family)s';
+  font-style: %(style)s;
+  font-weight: %(weight)s;
   font-display: block;
-  src: url(/fonts/%(0)s-$1.woff) format('woff');
+  src: url(/fonts/%(family)s-%(style)s.woff) format('woff');
 }
 ")
 
-;; -- Embed fonts into styles
-(defn get-node-fonts [node]
-  (let [current-font (if (not (nil? (:font-id node)))
-                       #{(select-keys node [:font-id :font-variant-id])}
-                       #{})
-        children-font (map get-node-fonts (:children node))]
-    (reduce set/union (conj children-font current-font))))
+(def ^:private xf-filter-styles
+  (let [prefix1 (txt/encode-style-prefix :font-id)
+        prefix2 (txt/encode-style-prefix :font-variant-id)]
+    (comp
+     (map :style)
+     (filter #(or (str/starts-with? % prefix1)
+                  (str/starts-with? % prefix2))))))
 
+(def ^:private xf-transform-styles-group
+  (comp
+   (map #(into #{} xf-filter-styles %))
+   (filter (complement empty?))
+   (map txt/styles-to-attrs)))
 
-(defn get-local-font-css [font-id font-variant-id]
-  (let [{:keys [family variants]} (get @fonts/fontsdb font-id)
-        {:keys [name weight style]} (->> variants (filter #(= (:id %) font-variant-id)) first)
-        css-str (str/format font-face-template [family name weight style])]
-    (p/resolved css-str)))
+(defn get-fonts
+  [{:keys [content2] :as shape}]
+  (loop [blocks (seq (:blocks content2))
+         result (transient #{})]
+    (if-let [block (first blocks)]
+      (recur (rest blocks)
+             (->> (:inlineStyleRanges block)
+                  (group-by (juxt :offset :start))
+                  (vals)
+                  (transduce xf-transform-styles-group conj! result)))
+      (persistent! result))))
+
+(defn get-local-font-css
+  [font-id font-variant-id]
+  (let [{:keys [family variants] :as font}      (get @fonts/fontsdb font-id)
+        {:keys [name weight style] :as variant} (d/seek #(= (:id %) font-variant-id) variants)]
+    (-> (str/format font-face-template {:family family :style style :width weight})
+        (p/resolved))))
 
 (defn get-text-font-data [text]
   (->> text
@@ -50,7 +70,8 @@
        (map df/fetch-as-data-uri)
        (p/all)))
 
-(defn embed-font [{:keys [font-id font-variant-id] :or {font-variant-id "regular"}}]
+(defn embed-font
+  [{:keys [font-id font-variant-id] :or {font-variant-id "regular"}}]
   (let [{:keys [backend]} (get @fonts/fontsdb font-id)]
     (p/let [font-text (case backend
                         :google (fonts/fetch-font font-id font-variant-id)
@@ -59,17 +80,19 @@
             replace-text (fn [text [url data]] (str/replace text url data))]
       (reduce replace-text font-text url-to-data))))
 
-(mf/defc embed-fontfaces-style [{:keys [node]}]
-  (let [embeded-fonts (mf/use-state nil)]
+(mf/defc embed-fontfaces-style
+  {::mf/wrap-props false}
+  [props]
+  (let [shape (obj/get props "shape")
+        style (mf/use-state nil)]
     (mf/use-effect
-     (mf/deps node)
+     (mf/deps shape)
      (fn []
-       (let [font-to-embed (get-node-fonts node)
-             font-to-embed (if (empty? font-to-embed) #{ut/default-text-attrs} font-to-embed)
-             embeded (map embed-font font-to-embed)]
+       (let [font-to-embed (get-fonts shape)
+             font-to-embed (if (empty? font-to-embed) #{txt/default-text-attrs} font-to-embed)
+             embeded       (map embed-font font-to-embed)]
          (-> (p/all embeded)
-             (p/then (fn [result] (reset! embeded-fonts (str/join "\n" result))))))))
+             (p/then (fn [result] (reset! style (str/join "\n" result))))))))
 
-    
-    (when (not (nil? @embeded-fonts))
-      [:style @embeded-fonts])))
+    (when (some? @style)
+      [:style @style])))

@@ -55,23 +55,23 @@
      {:style (sts/generate-root-styles* shape)
       :xmlns "http://www.w3.org/1999/xhtml"}
      [:style ".gradient { background: var(--text-color); -webkit-text-fill-color: transparent; -webkit-background-clip: text;"]
-     ;; TODO
-     #_(when embed-fonts?
-         [ste/embed-fontfaces-style {:content root}])
+     (when embed?
+       [ste/embed-fontfaces-style {:shape shape}])
      [:div.paragraph-set {:style (sts/generate-paragraph-set-styles* grow-type)}
       (for [block blocks]
         (get-block-markup shape block))]]))
 
-;; TODO: fixme
 (defn- retrieve-colors
-  [shape]
-  (let [colors (->> shape
-                    :content
-                    (tree-seq map? :children)
-                    (into #{} (comp (map :fill-color) (filter string?))))]
-    (if (empty? colors)
-      "#000000"
-      (apply str (interpose "," colors)))))
+  [{:keys [content2] :as shape}]
+  (let [prefix (txt/encode-style-prefix :fill-color)
+        styles (into #{}
+                     (comp (mapcat :inlineStyleRanges)
+                           (map :style)
+                           (filter #(str/starts-with? % prefix)))
+                     (:blocks content2))
+        colors (txt/styles-to-values styles)
+        colors (conj colors "#000000")]
+    (apply str (interpose "," colors))))
 
 (mf/defc text-shape
   {::mf/wrap-props false

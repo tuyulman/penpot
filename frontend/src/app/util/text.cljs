@@ -219,4 +219,12 @@
            (transient {})
            (seq styles))))
 
+(defn styles-to-values
+  [styles]
+  (persistent!
+   (reduce (fn [result style]
+             (let [[_ k v] (str/split style "$$$" 3)]
+               (conj! result (decode-style-value v))))
+           (transient #{})
+           (seq styles))))
 

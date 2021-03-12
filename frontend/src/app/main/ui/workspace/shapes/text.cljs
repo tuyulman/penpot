@@ -52,8 +52,7 @@
 (mf/defc text-resize-content
   {::mf/wrap-props false}
   [props]
-  (let [shape (obj/get props "shape")
-        {:keys [id name x y grow-type]} shape
+  (let [{:keys [id name x y grow-type] :as shape} (obj/get props "shape")
         paragraph-ref (mf/use-state nil)
 
         handle-resize-text
@@ -135,4 +134,3 @@
          :on-pointer-out handle-pointer-leave
          :on-double-click handle-double-click
          :transform (gsh/transform-matrix shape)}])]))
-

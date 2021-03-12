@@ -5,11 +5,10 @@
 ;; This Source Code Form is "Incompatible With Secondary Licenses", as
 ;; defined by the Mozilla Public License, v. 2.0.
 ;;
-;; Copyright (c) 2020 UXBOX Labs SL
+;; Copyright (c) 2020-2021 UXBOX Labs SL
 
 (ns app.main.ui.shapes.text
   (:require
-   [app.util.dom :as dom]
    [app.common.data :as d]
    [app.common.geom.matrix :as gmt]
    [app.common.geom.shapes :as geom]
@@ -17,17 +16,15 @@
    [app.main.ui.shapes.text.embed :as ste]
    [app.main.ui.shapes.text.styles :as sts]
    [app.util.color :as uc]
+   [app.util.dom :as dom]
    [app.util.object :as obj]
-   [app.util.text :as txt]
    [app.util.perf :as perf]
+   [app.util.text :as txt]
    [cuerdas.core :as str]
    [rumext.alpha :as mf]))
 
-;; TODO: review performance
-
 (defn- get-section-markup
   [section]
-  (prn "get-section-markup" section)
   (let [style (sts/generate-text-styles* (:attrs section))]
     (mf/create-element "span" #js {:style style} #js [(:text section)])))
 
@@ -53,7 +50,7 @@
         blocks   (get content :blocks)
         embed?   (obj/get props "embed-fonts?")]
 
-    [:div.rich-text
+    [:div.root.rich-text
      {:class (dom/classnames
               :align-top (= (:vertical-align shape "top") "top")
               :align-center (= (:vertical-align shape) "center")
@@ -63,7 +60,7 @@
      ;; TODO
      #_(when embed-fonts?
          [ste/embed-fontfaces-style {:content root}])
-     [:div.paragraph-set
+     [:div.paragraph-set {:style (sts/generate-paragraph-set-styles* shape)}
       [:div.paragraphs
        (for [block blocks]
          (get-block-markup shape block))]]]))

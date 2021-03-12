@@ -50,15 +50,6 @@
 
 ;; --- Text Editor Rendering
 
-;; (mf/defc entity-component
-;;   {::mf/wrap-props false}
-;;   [props]
-;;   (let [children (obj/get props "children")
-;;         content  (obj/get props "contentState")
-;;         entity   (.getEntity ^js content (obj/get props "entityKey"))
-;;         style    (sts/generate-text-styles* (.getData entity))]
-;;     [:span {:style style} children]))
-
 (mf/defc block-component
   {::mf/wrap-props false}
   [props]
@@ -96,15 +87,14 @@
         state         (or (mf/deref refs/workspace-editor-state) empty-editor-state)
 
         self-ref      (mf/use-ref)
-        selecting-ref (mf/use-ref)
 
-        on-close
-        (fn []
-          (st/emit! dw/clear-edition-mode)
+        ;; on-close
+        ;; (fn []
+        ;;   (st/emit! dw/clear-edition-mode)
 
-          #_(when (= 0 (content-size @content-var))
-            (st/emit! (dws/deselect-shape id)
-                      (dw/delete-shapes [id]))))
+        ;;   #_(when (= 0 (content-size @content-var))
+        ;;     (st/emit! (dws/deselect-shape id)
+        ;;               (dw/delete-shapes [id]))))
 
         on-click-outside
         (fn [event]
@@ -114,8 +104,7 @@
                 cpicker    (dom/get-element-by-class "colorpicker-tooltip")
                 palette    (dom/get-element-by-class "color-palette")
 
-                self       (mf/ref-val self-ref)
-                selecting? (mf/ref-val selecting-ref)]
+                self       (mf/ref-val self-ref)]
             (if (or (and options (.contains options target))
                     (and assets  (.contains assets target))
                     (and self    (.contains self target))
@@ -123,19 +112,7 @@
                     (and palette (.contains palette target))
                     (= "foreignObject" (.-tagName ^js target)))
               (dom/stop-propagation event)
-              (if selecting?
-                (do
-                  (mf/set-ref-val! selecting-ref false)
-                  (dom/stop-propagation event))
-                (on-close)))))
-
-        on-mouse-down
-        (fn [event]
-          (mf/set-ref-val! selecting-ref true))
-
-        on-mouse-up
-        (fn [event]
-          (mf/set-ref-val! selecting-ref false))
+              (st/emit! dw/clear-edition-mode))))
 
         on-key-up
         (fn [event]
@@ -143,7 +120,7 @@
           (when (= (.-keyCode event) 27) ; ESC
             (do
               (st/emit! :interrupt)
-              (on-close))))
+              (st/emit! dw/clear-edition-mode))))
 
         on-mount
         (fn []

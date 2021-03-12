@@ -38,16 +38,19 @@
    {:name "Source Sans Pro Regular"}
    (select-keys default-text-attrs typography-fields)))
 
+;; TODO:
 (defn some-node
   [predicate node]
   (or (predicate node)
       (some #(some-node predicate %) (:children node))))
 
+;; TODO: used in libraries_helpers, workspace text editor and util.svg (?)
 (defn map-node
   [map-fn node]
   (cond-> (map-fn node)
     (:children node) (update :children (fn [children] (mapv #(map-node map-fn %) children)))))
 
+;; TODO: used on handoff
 (defn content->text
   [node]
   (str
@@ -55,6 +58,7 @@
      (str/join (if (= "paragraph-set" (:type node)) "\n" "") (map content->text (:children node)))
      (:text node ""))))
 
+;; TODO: used on handoff
 (defn parse-style-text-blocks
   [node attrs]
   (letfn
@@ -85,6 +89,7 @@
     (-> (rec-style-text-map [] node {})
         reverse)))
 
+;; TODO: code_gen & handoff
 (defn search-text-attrs
   [node attrs]
   (let [rec-fn
@@ -118,6 +123,7 @@
           (let [next (get pending (dec (count pending)))]
             (recur result next (pop! pending))))))))
 
+;; TODO: used on multiple selection options
 (defn get-text-attrs-multi
   [node attrs]
   (let [nodes (content->nodes node)]
@@ -192,7 +198,7 @@
         v (encode-style-value val)]
     (str "PENPOT$$$" k "$$$" v)))
 
-(defn encode-partial-style
+(defn encode-style-prefix
   [key]
   (let [k (d/name key)]
     (str "PENPOT$$$" k "$$$")))

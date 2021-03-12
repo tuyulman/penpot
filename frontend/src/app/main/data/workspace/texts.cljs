@@ -15,6 +15,7 @@
    [app.common.geom.shapes :as gsh]
    [app.common.pages :as cp]
    [app.common.data :as d]
+   [app.main.data.workspace.selection :as dws]
    [app.main.data.workspace.common :as dwc]
    [app.main.data.workspace.transforms :as dwt]
    [app.main.fonts :as fonts]
@@ -55,13 +56,18 @@
     ptk/WatchEvent
     (watch [_ state stream]
       (let [estate  (:workspace-editor-state state)
-            content (-> (.getCurrentContent estate)
-                        (draft/convertToRaw)
-                        (js->clj :keywordize-keys true))]
-        (rx/merge
-         (rx/of (update-editor-state nil))
-         (when (not= content2 content)
-           (rx/of (dwc/update-shapes [id] #(assoc % :content2 content)))))))))
+            content (.getCurrentContent ^js estate)]
+        (if ^boolean (.hasText ^js content)
+          (let [content (-> content
+                            (draft/convertToRaw)
+                            (js->clj :keywordize-keys true))]
+            (rx/merge
+             (rx/of (update-editor-state nil))
+             (when (not= content2 content)
+               (rx/of (dwc/update-shapes [id] #(assoc % :content2 content))))))
+          (rx/of (dws/deselect-shape id)
+                 (dwc/delete-shapes [id])))))))
+
 
 (defn select-all
   "Select all content of the current editor. When not editor found this
@@ -191,9 +197,9 @@
   [{:keys [id attrs]}]
   (letfn [(update-block-inline-style [block key val]
             (let [style   (txt/encode-style key val)
-                  sprefix (txt/encode-partial-style key)
+                  prefix  (txt/encode-style-prefix key)
                   exising (into #{}
-                                (filter #(str/starts-with? (:style %) sprefix))
+                                (filter #(str/starts-with? (:style %) prefix))
                                 (:inlineStyleRanges block))
 
                   srange  {:offset 0

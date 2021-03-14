@@ -10,23 +10,23 @@
 (ns app.main.ui.workspace.shapes.text.editor
   (:require
    ["draft-js" :as draft]
-   [okulary.core :as l]
-   [cuerdas.core :as str]
-   [goog.events :as events]
-   [rumext.alpha :as mf]
    [app.common.data :as d]
    [app.common.geom.shapes :as gsh]
-   [app.util.dom :as dom]
-   [app.util.text :as txt]
-   [app.util.object :as obj]
-   [app.main.refs :as refs]
-   [app.main.store :as st]
    [app.main.data.workspace :as dw]
    [app.main.data.workspace.common :as dwc]
-   [app.main.data.workspace.texts :as dwt]
    [app.main.data.workspace.selection :as dws]
+   [app.main.data.workspace.texts :as dwt]
+   [app.main.refs :as refs]
+   [app.main.store :as st]
    [app.main.ui.cursors :as cur]
-   [app.main.ui.shapes.text.styles :as sts])
+   [app.main.ui.shapes.text.styles :as sts]
+   [app.util.dom :as dom]
+   [app.util.object :as obj]
+   [app.util.text-editor :as ted]
+   [cuerdas.core :as str]
+   [goog.events :as events]
+   [okulary.core :as l]
+   [rumext.alpha :as mf])
   (:import
    goog.events.EventType
    goog.events.KeyCodes))
@@ -80,7 +80,7 @@
    ::mf/wrap-props false
    ::mf/forward-ref true}
   [props ref]
-  (let [{:keys [id x y width height content2 grow-type] :as shape} (unchecked-get props "shape")
+  (let [{:keys [id x y width height grow-type] :as shape} (obj/get props "shape")
 
         zoom          (mf/deref refs/selected-zoom)
         state         (or (mf/deref refs/workspace-editor-state) empty-editor-state)
@@ -160,7 +160,7 @@
        :on-select (fn [event]
                     (js/console.log event))
        :custom-style-fn (fn [styles block]
-                          (-> (txt/styles-to-attrs styles)
+                          (-> (ted/styles-to-attrs styles)
                               (sts/generate-text-styles*)))
        :block-renderer-fn #(render-block % shape)
        :ref on-editor
@@ -171,7 +171,7 @@
    ::mf/wrap-props false
    ::mf/forward-ref true}
   [props ref]
-  (let [shape (unchecked-get props "shape")
+  (let [shape (obj/get props "shape")
         {:keys [x y width height grow-type]} shape]
     [:foreignObject {:transform (gsh/transform-matrix shape)
                      :x x :y y

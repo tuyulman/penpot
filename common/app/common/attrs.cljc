@@ -49,7 +49,6 @@
    (loop [attr (first attrs)
           attrs (rest attrs)
           result (transient {})]
-
      (if attr
        (let [value
              (loop [curr (first objs)

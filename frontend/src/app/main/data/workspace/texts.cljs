@@ -5,13 +5,14 @@
 ;; This Source Code Form is "Incompatible With Secondary Licenses", as
 ;; defined by the Mozilla Public License, v. 2.0.
 ;;
-;; Copyright (c) 2020 UXBOX Labs SL
+;; Copyright (c) 2020-2021 UXBOX Labs SL
 
 (ns app.main.data.workspace.texts
   (:require
    ["draft-js" :as draft]
    [app.common.math :as mth]
    [app.common.attrs :as attrs]
+   [app.common.text :as txt]
    [app.common.geom.shapes :as gsh]
    [app.common.pages :as cp]
    [app.common.data :as d]
@@ -20,13 +21,16 @@
    [app.main.data.workspace.transforms :as dwt]
    [app.main.fonts :as fonts]
    [app.util.object :as obj]
-   [app.util.text :as txt]
+   [app.util.text-editor :as ted]
    [app.util.timers :as ts]
    [beicon.core :as rx]
    [cljs.spec.alpha :as s]
    [goog.object :as gobj]
    [cuerdas.core :as str]
    [potok.core :as ptk]))
+
+
+;; TODO: abstract some draft internals
 
 (defn update-editor
   [editor]
@@ -55,20 +59,22 @@
         (dissoc state :workspace-editor-state)))))
 
 (defn initialize-editor-state
-  [{:keys [id content2] :as shape}]
+  [{:keys [id content] :as shape}]
   (ptk/reify ::initialize-editor-state
     ptk/UpdateEvent
     (update [_ state]
       (update state :workspace-editor-state
               (fn [_]
-                (if content2
-                  (->> (clj->js content2)
+                (if content
+                  (->> content
+                       (ted/penpot->draft)
+                       (clj->js)
                        (draft/convertFromRaw)
                        (.createWithContent ^js draft/EditorState))
                   (.createEmpty ^js draft/EditorState)))))))
 
 (defn finalize-editor-state
-  [{:keys [id content2] :as shape}]
+  [{:keys [id] :as shape}]
   (ptk/reify ::finalize-editor-state
     ptk/WatchEvent
     (watch [_ state stream]
@@ -77,24 +83,23 @@
         (if ^boolean (.hasText ^js content)
           (let [content (-> content
                             (draft/convertToRaw)
-                            (js->clj :keywordize-keys true))
-                ;; content (txt/penpot->draft (txt/draft->penpot content))
+                            (js->clj :keywordize-keys true)
+                            (ted/draft->penpot))
                 ]
-            (println "=============================")
-            (println "====== draft->penpot:")
-            (cljs.pprint/pprint (txt/draft->penpot content))
-            (println "====== original:")
-            (cljs.pprint/pprint content)
-            (println "====== penpot->draft:")
-            (cljs.pprint/pprint (txt/penpot->draft (txt/draft->penpot content)))
+            ;; (println "=============================")
+            ;; (println "====== draft->penpot:")
+            ;; (cljs.pprint/pprint (txt/draft->penpot content))
+            ;; (println "====== original:")
+            ;; (cljs.pprint/pprint content)
+            ;; (println "====== penpot->draft:")
+            ;; (cljs.pprint/pprint (txt/penpot->draft (txt/draft->penpot content)))
 
             (rx/merge
              (rx/of (update-editor-state nil))
-             (when (not= content2 content)
-               (rx/of (dwc/update-shapes [id] #(assoc % :content2 content))))))
+             (when (not= content (:content shape))
+               (rx/of (dwc/update-shapes [id] #(assoc % :content content))))))
           (rx/of (dws/deselect-shape id)
                  (dwc/delete-shapes [id])))))))
-
 
 (defn select-all
   "Select all content of the current editor. When not editor found this
@@ -126,47 +131,33 @@
         key     (.. ^js state getSelection getStartKey)]
     (.getBlockForKey ^js content key)))
 
-(defn- get-style-data
-  [{:keys [content2] :as shape}]
-  (->> (:blocks content2)
-       (mapcat :inlineStyleRanges)
-       (txt/parse-style-ranges)
-       (reduce (fn [res {:keys [key val] :as item}]
-                 (assoc! res key val))
-               (transient {}))
-       (persistent!)))
-
-(defn- get-block-data
-  [{:keys [content2] :as shape}]
-  (reduce (fn [res item]
-            (d/merge res (:data item)))
-          {}
-          (:blocks content2)))
-
-(defn- immutable-map->map
-  [obj]
-  (into {} (map (fn [[k v]] [(keyword k) v])) (seq obj)))
+(defn- shape-current-values
+  [shape pred attrs]
+  (let [root  (:content shape)
+        nodes (->> (txt/nodes-seq pred root)
+                   (map #(if (txt/is-text-node? %)
+                           (merge txt/default-text-attrs %)
+                           %)))]
+    (attrs/get-attrs-multi nodes attrs)))
 
 (defn current-paragraph-values
   [{:keys [editor-state attrs shape]}]
   (if editor-state
     (let [block (get-editor-current-block editor-state)]
       (-> (.getData ^js block)
-          (immutable-map->map)
+          (ted/immutable-map->map)
           (select-keys attrs)))
-    (-> (get-block-data shape)
-        (select-keys attrs))))
+
+    (shape-current-values shape txt/is-paragraph-node? attrs)))
 
 (defn current-text-values
   [{:keys [editor-state attrs shape]}]
   (if editor-state
     (-> (.getCurrentInlineStyle ^js editor-state)
-        (txt/styles-to-attrs)
+        (ted/styles-to-attrs)
         (select-keys attrs))
-    ;; TODO
-    (let [res (get-style-data shape)
-          res (select-keys res attrs)]
-      res)))
+    (shape-current-values shape txt/is-text-node? attrs)))
+
 
 ;; --- TEXT EDITION IMPL
 
@@ -181,9 +172,9 @@
 (defn update-paragraph-attrs
   [{:keys [id attrs]}]
   (letfn [(update-shape-blocks [shape]
-            (d/update-in-when shape [:content2 :blocks]
-                              (fn [blocks]
-                                (mapv #(update % :data d/merge attrs) blocks))))
+            (let [merge-attrs #(attrs/merge % attrs)]
+              (update shape :content #(txt/transform-nodes txt/is-paragraph-node? merge-attrs %))))
+
           (update-editor-current-block [state]
             (loop [selection (.getSelection ^js state)
                    start-key (.getStartKey ^js selection)
@@ -207,6 +198,7 @@
                        state
                        (.mergeBlockData ^js draft/Modifier content target (clj->js attrs))
                        "change-block-data"))))]
+
     (ptk/reify ::update-paragraph-attrs
       ptk/UpdateEvent
       (update [_ state]
@@ -224,45 +216,14 @@
 
 (defn update-text-attrs
   [{:keys [id attrs]}]
-  (letfn [(update-block-inline-style [block key val]
-            (let [style   (txt/encode-style key val)
-                  prefix  (txt/encode-style-prefix key)
-                  exising (into #{}
-                                (filter #(str/starts-with? (:style %) prefix))
-                                (:inlineStyleRanges block))
-
-                  srange  {:offset 0
-                           :length (count (:text block))
-                           :style style}]
-
-              (cond
-                ;; If the style is already available in some range, we replace all the existing
-                ;; styles with the new one.
-                (nil? val)
-                (update block :inlineStyleRanges
-                        (fn [ranges]
-                          (into [] (remove exising) ranges)))
-
-                (seq exising)
-                (update block :inlineStyleRanges
-                        (fn [ranges]
-                          (into [srange] (remove exising) ranges)))
-
-                ;; If no range found, we should add a new style
-                :else
-                (update block :inlineStyleRanges conj srange))))
-
-          (update-shape-inline-style [{:keys [content2] :as shape}]
-            (update-in shape [:content2 :blocks]
-                       (fn [blocks]
-                         (mapv (fn [block]
-                                 (reduce-kv update-block-inline-style block attrs))
-                               blocks))))
+  (letfn [(update-shape-inline-style [shape]
+            (let [merge-attrs #(attrs/merge % attrs)]
+              (update shape :content #(txt/transform-nodes txt/is-text-node? merge-attrs %))))
 
           (update-editor-inline-style [state]
             (let [selection (.getSelection ^js state)
                   content   (.getCurrentContent ^js state)
-                  styles    (txt/attrs-to-styles attrs)]
+                  styles    (ted/attrs-to-styles attrs)]
               (reduce (fn [state style]
                         (let [modifier (.applyInlineStyle draft/Modifier
                                                           (.getCurrentContent ^js state)
@@ -286,6 +247,7 @@
                 ids     (cond (= (:type shape) :text)  [id]
                               (= (:type shape) :group) (cp/get-children id objects))]
             (rx/of (dwc/update-shapes ids update-shape-inline-style))))))))
+
 
 ;; --- RESIZE UTILS
 

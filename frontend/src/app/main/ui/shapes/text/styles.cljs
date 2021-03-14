@@ -10,10 +10,10 @@
 (ns app.main.ui.shapes.text.styles
   (:require
    [app.common.data :as d]
+   [app.common.text :as txt]
    [app.main.fonts :as fonts]
    [app.util.color :as uc]
    [app.util.object :as obj]
-   [app.util.text :as txt]
    [cuerdas.core :as str]))
 
 (defn generate-root-styles*
@@ -25,7 +25,6 @@
       (= valign "top")     (obj/set! "justifyContent" "flex-start")
       (= valign "center")  (obj/set! "justifyContent" "center")
       (= valign "bottom")  (obj/set! "justifyContent" "flex-end"))))
-
 
 (defn generate-paragraph-set-styles*
   [grow-type]

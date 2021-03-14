@@ -140,7 +140,7 @@
 
 (defn search-text-attrs
   [node attrs]
-  (->> (txt/nodes-seq node)
+  (->> (txt/node-seq node)
        (map #(select-keys % attrs))
        (reduce d/merge)))
 

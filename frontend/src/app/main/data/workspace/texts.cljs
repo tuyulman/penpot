@@ -134,7 +134,7 @@
 (defn- shape-current-values
   [shape pred attrs]
   (let [root  (:content shape)
-        nodes (->> (txt/nodes-seq pred root)
+        nodes (->> (txt/node-seq pred root)
                    (map #(if (txt/is-text-node? %)
                            (merge txt/default-text-attrs %)
                            %)))]

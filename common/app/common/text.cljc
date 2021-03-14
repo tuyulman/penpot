@@ -48,83 +48,32 @@
    {:name "Source Sans Pro Regular"}
    (select-keys default-text-attrs typography-fields)))
 
-;; TODO:
-(defn some-node
-  [predicate node]
-  (or (predicate node)
-      (some #(some-node predicate %) (:children node))))
-
-;; TODO: used in libraries_helpers, workspace text editor and util.svg (?)
-(defn map-node
-  [map-fn node]
-  (cond-> (map-fn node)
-    (:children node) (update :children (fn [children] (mapv #(map-node map-fn %) children)))))
-
 (defn transform-nodes
-  [pred transform data]
-  (walk/postwalk
-   (fn [item]
-     (if (and (map? item) (pred item))
-       (transform item)
-       item))
-   data))
+  ([transform root]
+   (transform-nodes identity transform root))
+  ([pred transform root]
+   (walk/postwalk
+    (fn [item]
+      (if (and (map? item) (pred item))
+        (transform item)
+        item))
+    root)))
+
+(defn node-seq
+  ([root] (node-seq identity root))
+  ([match? root]
+   (->> (tree-seq map? :children root)
+        (filter match?)
+        (seq))))
 
 (defn ^boolean is-text-node?
   [node]
-  (and (map? node)
-       (string? (:text node))))
+  (string? (:text node)))
 
 (defn ^boolean is-paragraph-node?
   [node]
-  (and (map? node)
-       (= "paragraph" (:type node))))
+  (= "paragraph" (:type node)))
 
 (defn ^boolean is-root-node?
   [node]
-  (and (map? node)
-       (= "root" (:type node))))
-
-(defn nodes-seq
-  ([root] (nodes-seq nil root))
-  ([match? root]
-   (cond->> (tree-seq map? :children root)
-     (fn? match?)
-     (filter match?))))
-
-;; TODO: rename node->text
-(defn content->text
-  [node]
-  (str
-   (if (:children node)
-     (str/join (if (= "paragraph-set" (:type node)) "\n" "") (map content->text (:children node)))
-     (:text node ""))))
-
-
-(defn content->nodes [node]
-  (loop [result (transient [])
-         curr node
-         pending (transient [])]
-
-    (let [result (conj! result curr)]
-      ;; Adds children to the pending list
-      (let [children (:children curr)
-            pending (loop [child (first children)
-                           children (rest children)
-                           pending pending]
-                      (if child
-                        (recur (first children)
-                               (rest children)
-                               (conj! pending child))
-                        pending))]
-
-        (if (= 0 (count pending))
-          (persistent! result)
-          ;; Iterates with the next value in pending
-          (let [next (get pending (dec (count pending)))]
-            (recur result next (pop! pending))))))))
-
-;; TODO: used on multiple selection options, remove
-(defn get-text-attrs-multi
-  [node attrs]
-  (let [nodes (content->nodes node)]
-    (attrs/get-attrs-multi nodes attrs)))
+  (= "root" (:type node)))

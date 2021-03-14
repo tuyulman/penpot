@@ -11,6 +11,7 @@
   (:require
    [app.common.data :as d]
    [app.common.uuid :as uuid]
+   [app.common.text :as txt]
    [app.main.data.workspace.common :as dwc]
    [app.main.data.workspace.libraries :as dwl]
    [app.main.data.workspace.texts :as dwt]
@@ -22,7 +23,6 @@
    [app.main.ui.workspace.sidebar.options.menus.typography :refer [typography-entry typography-options]]
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
-   [app.util.text :as ut]
    [cuerdas.core :as str]
    [rumext.alpha :as mf]))
 
@@ -181,7 +181,6 @@
         (fn [id attrs]
           (let [attrs (select-keys attrs root-attrs)]
             (when-not (empty? attrs)
-              (prn "emit-update!" "root" id attrs)
               (st/emit! (dwt/update-root-attrs {:id id :attrs attrs}))))
 
           (let [attrs (select-keys attrs paragraph-attrs)]
@@ -214,7 +213,7 @@
                                     (d/concat text-font-attrs
                                               text-spacing-attrs
                                               text-transform-attrs)))
-                 typography (merge ut/default-typography setted-values)
+                 typography (merge txt/default-typography setted-values)
                  typography (generate-typography-name typography)]
              (let [id (uuid/next)]
                (st/emit! (dwl/add-typography (assoc typography :id id) false))

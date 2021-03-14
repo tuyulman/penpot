@@ -5,21 +5,19 @@
 ;; This Source Code Form is "Incompatible With Secondary Licenses", as
 ;; defined by the Mozilla Public License, v. 2.0.
 ;;
-;; Copyright (c) 2020 UXBOX Labs SL
+;; Copyright (c) 2020-2021 UXBOX Labs SL
 
 (ns app.main.ui.shapes.text
   (:require
-   [cuerdas.core :as str]
-   [rumext.alpha :as mf]
-   [app.main.ui.context :as muc]
    [app.common.data :as d]
    [app.common.geom.shapes :as geom]
-   [app.common.geom.matrix :as gmt]
-   [app.util.object :as obj]
-   [app.util.color :as uc]
-   [app.main.ui.shapes.text.styles :as sts]
+   [app.main.ui.context :as muc]
    [app.main.ui.shapes.text.embed :as ste]
-   [app.util.perf :as perf]))
+   [app.main.ui.shapes.text.styles :as sts]
+   [app.util.color :as uc]
+   [app.util.object :as obj]
+   [cuerdas.core :as str]
+   [rumext.alpha :as mf]))
 
 (mf/defc render-text
   {::mf/wrap-props false}
@@ -53,10 +51,7 @@
   (let [node     (obj/get props "node")
         children (obj/get props "children")
         shape    (obj/get props "shape")
-
-        ;; TODO: revisit grow-type, seems redundant because we already have it in shape
-        grow-type (obj/get props "grow-type")
-        style    (sts/generate-paragraph-set-styles* grow-type)]
+        style    (sts/generate-paragraph-set-styles* (:grow-type shape))]
     [:div.paragraph-set {:style style} children]))
 
 (mf/defc render-paragraph
@@ -72,12 +67,7 @@
 (mf/defc render-node
   {::mf/wrap-props false}
   [props]
-  (let [node     (obj/get props "node")
-        index    (obj/get props "index")
-
-        type     (:type node)
-        text     (:text node)
-        children (:children node)]
+  (let [{:keys [type text children] :as node} (obj/get props "node")]
     (if (string? text)
       [:> render-text props]
       (let [component (case type
@@ -86,8 +76,7 @@
                         "paragraph" render-paragraph
                         nil)]
         (when component
-          [:> component (-> (obj/clone props)
-                            (obj/set! "key" index))
+          [:> component props
            (for [[index node] (d/enumerate children)]
              (let [props (-> (obj/clone props)
                              (obj/set! "node" node)
@@ -95,21 +84,9 @@
                              (obj/set! "key" index))]
                [:> render-node props]))])))))
 
-(mf/defc text-content
-  {::mf/wrap-props false}
-  [props]
-  (let [root         (obj/get props "content")
-        shape        (obj/get props "shape")
-        embed-fonts? (obj/get props "embed-fonts?")]
-    [:& render-node {:index 0
-                     :node root
-                     :shape shape
-                     :embed-fonts? embed-fonts?}]))
-
 (defn- retrieve-colors
   [shape]
-  (let [colors (->> shape
-                    :content
+  (let [colors (->> (:content shape)
                     (tree-seq map? :children)
                     (into #{} (comp (map :fill-color) (filter string?))))]
     (if (empty? colors)
@@ -120,8 +97,7 @@
   {::mf/wrap-props false
    ::mf/forward-ref true}
   [props ref]
-  (let [{:keys [id x y width height content] :as shape} (obj/get props "shape")
-        grow-type    (obj/get props "grow-type")
+  (let [{:keys [id x y width height content grow-type] :as shape} (obj/get props "shape")
         embed-fonts? (mf/use-ctx muc/embed-ctx)
         ;; We add 8px to add a padding for the exporter
         ;; width (+ width 8)
@@ -134,8 +110,7 @@
                      :width  (if (#{:auto-width} grow-type) 100000 width)
                      :height (if (#{:auto-height :auto-width} grow-type) 100000 height)
                      :ref ref}
-     (prn "content" content)
-     [:& text-content {:shape shape
-                       :content content
-                       :grow-type grow-type
-                       :embed-fonts? embed-fonts?}]]))
+     [:& render-node {:index 0
+                      :shape shape
+                      :node content
+                      :embed-fonts? embed-fonts?}]]))

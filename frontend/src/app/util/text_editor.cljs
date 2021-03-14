@@ -12,8 +12,11 @@
   (:require
    ["draft-js" :as draft]
    [app.common.attrs :as attrs]
+   [app.common.text :as txt]
    [app.common.data :as d]
    [app.util.transit :as t]
+   [app.util.array :as arr]
+   [app.util.object :as obj]
    [clojure.walk :as walk]
    [cuerdas.core :as str]))
 
@@ -25,6 +28,8 @@
     (string? v)  (str "s:" v)
     (number? v)  (str "n:" v)
     (keyword? v) (str "k:" (name v))
+    (map? v)     (str "m:" (t/encode v))
+
     :else (str "o:" v)))
 
 (defn decode-style-value
@@ -34,6 +39,7 @@
       "s:" (subs v 2)
       "n:" (js/Number (subs v 2))
       "k:" (keyword (subs v 2))
+      "m:" (t/decode (subs v 2))
       "o:" (subs v 2)
       v)))
 
@@ -61,19 +67,20 @@
 
 ;; --- CONVERSION
 
-(defn parse-style-ranges
+(defn- parse-draft-styles
   "Parses draft-js style ranges, converting encoded style name into a
   key/val pair of data."
-  [ranges]
-  (map (fn [{:keys [style] :as item}]
-         (if (str/starts-with? style "PENPOT$$$")
-           (let [[_ k v] (str/split style "$$$" 3)]
-             (assoc item
-                    :key (keyword k)
-                    :val (decode-style-value v)))))
-       ranges))
+  [styles]
+  (map (fn [item]
+         (let [[_ k v] (-> (obj/get item "style")
+                           (str/split "$$$" 3))]
+           {:key (keyword k)
+            :val (decode-style-value v)
+            :offset (obj/get item "offset")
+            :length (obj/get item "length")}))
+       styles))
 
-(defn build-style-index
+(defn- build-style-index
   "Generates a character based index with associated styles map."
   [text ranges]
   (loop [result (->> (range (count text))
@@ -89,88 +96,90 @@
              (rest ranges))
       (persistent! result))))
 
-;; TODO: expect JS data sturcture
-(defn draft->penpot
-  [{:keys [blocks]}]
+(defn- convert-from-draft
+  [content]
   (letfn [(build-text [text part]
             (let [start (ffirst part)
                   end   (inc (first (last part)))]
               (-> (second (first part))
                   (assoc :text (subs text start end)))))
 
-          (split-texts [text ranges]
-            (->> (parse-style-ranges ranges)
+          (split-texts [text styles]
+            (->> (parse-draft-styles styles)
                  (build-style-index text)
                  (d/enumerate)
                  (partition-by second)
-                 (mapv (partial build-text text))))
+                 (mapv #(build-text text %))))
 
-          (build-paragraph [{:keys [key text inlineStyleRanges data]}]
-            (-> data
-                (assoc :key key)
-                (assoc :type "paragraph")
-                (assoc :children (split-texts text inlineStyleRanges))))]
+          (build-paragraph [block]
+            (let [key    (obj/get block "key")
+                  text   (obj/get block "text")
+                  styles (obj/get block "inlineStyleRanges")
+                  data   (obj/get block "data")]
+              (-> (js->clj data :keywordize-keys true)
+                  (assoc :key key)
+                  (assoc :type "paragraph")
+                  (assoc :children (split-texts text styles)))))]
 
     {:type "root"
      :children
      [{:type "paragraph-set"
-       :children (mapv build-paragraph blocks)}]}))
+       :children (->> (obj/get content "blocks")
+                      (mapv build-paragraph))}]}))
 
-;; TODO: convert directly to JS data structure
-(defn penpot->draft
-  [node]
-  (letfn [(calc-attr-ranges [children [k v]]
+(defn- convert-to-draft
+  [root]
+  (letfn [(process-attr [children ranges [k v]]
             (loop [children (seq children)
                    start    nil
                    offset   0
-                   ranges   []]
-              (if-let [child (first children)]
-                (if (= v (get child k ::novalue))
+                   ranges   ranges]
+              (if-let [{:keys [text] :as item} (first children)]
+                (if (= v (get item k ::novalue))
                   (recur (rest children)
                          (if (nil? start) offset start)
-                         (+ offset (count (:text child)))
+                         (+ offset (alength text))
                          ranges)
                   (if (some? start)
                     (recur (rest children)
                            nil
-                           (+ offset (count (:text child)))
-                           (conj ranges {:offset start
-                                         :length (- offset start)
-                                         :style (encode-style k v)}))
+                           (+ offset (alength text))
+                           (arr/conj! ranges #js {:offset start
+                                                  :length (- offset start)
+                                                  :style (encode-style k v)}))
                     (recur (rest children)
                            start
-                           (+ offset (count (:text child)))
+                           (+ offset (alength text))
                            ranges)))
                 (cond-> ranges
                   (some? start)
-                  (conj {:offset start
-                         :length (- offset start)
-                         :style (encode-style k v)})))))
+                  (arr/conj! #js {:offset start
+                                  :length (- offset start)
+                                  :style (encode-style k v)})))))
 
-          (calc-ranges [{:keys [children]}]
+          (calc-ranges [{:keys [children] :as blok}]
             (let [xform (comp (map #(dissoc % :key :text))
                               (remove empty?)
                               (mapcat vec)
-                              (distinct)
-                              (map #(calc-attr-ranges children %))
-                              (mapcat vec))]
-              (into [] xform children)))
+                              (distinct))
+                  proc  #(process-attr children %1 %2)]
+              (transduce xform proc #js [] children)))
 
-          (build-block [{:keys [key children] :as paragraph}]
-            {:key key
-             :depth 0
-             :text (apply str (map :text children))
-             :data (dissoc paragraph :key :children :type)
-             :type "unstyled"
-             :entityRanges []
-             :inlineStyleRanges (calc-ranges paragraph)})]
-    (clj->js
-     {:blocks (->> (tree-seq map? :children node)
-                   (filter #(= (:type %) "paragraph"))
-                   (mapv build-block))
-      :entityMap {}})))
+          (build-block [result {:keys [key children] :as paragraph}]
+            (->> #js {:key key
+                      :depth 0
+                      :text (apply str (map :text children))
+                      :data (-> (dissoc paragraph :key :children :type)
+                                (clj->js))
+                      :type "unstyled"
+                      :entityRanges #js []
+                      :inlineStyleRanges (calc-ranges paragraph)}
+                 (arr/conj! result)))]
 
-(defn immutable-map->map
+    #js {:blocks (reduce build-block #js [] (txt/node-seq #(= (:type %) "paragraph") root))
+         :entityMap #js {}}))
+
+(defn- immutable-map->map
   [obj]
   (into {} (map (fn [[k v]] [(keyword k) v])) (seq obj)))
 
@@ -181,18 +190,19 @@
   ([]
    (.createEmpty ^js draft/EditorState))
   ([content]
-   (.createWithContent ^js draft/EditorState content)))
+   (if (some? content)
+     (.createWithContent ^js draft/EditorState content)
+     (.createEmpty ^js draft/EditorState))))
 
 (defn import-content
   [content]
-  (-> content penpot->draft draft/convertFromRaw))
+  (-> content convert-to-draft draft/convertFromRaw))
 
 (defn export-content
   [content]
   (-> content
       (draft/convertToRaw)
-      (js->clj :keywordize-keys true)
-      (draft->penpot)))
+      (convert-from-draft)))
 
 (defn get-editor-current-content
   [state]

@@ -25,7 +25,7 @@
   (let [node  (obj/get props "node")
         text  (:text node)
         style (sts/generate-text-styles* node)]
-    [:span {:style style :className (when (:fill-color-gradient node) "gradient")}
+    [:span {:style style}
      (if (= text "") "\u00A0" text)]))
 
 (mf/defc render-root
@@ -39,10 +39,8 @@
     [:div.root.rich-text
      {:style style
       :xmlns "http://www.w3.org/1999/xhtml"}
-     [:*
-      [:style ".gradient { background: var(--text-color); -webkit-text-fill-color: transparent; -webkit-background-clip: text;"]
-      (when embed?
-        [ste/embed-fontfaces-style {:node node}])]
+     (when embed?
+       [ste/embed-fontfaces-style {:node node}])
      children]))
 
 (mf/defc render-paragraph-set

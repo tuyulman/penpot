@@ -33,12 +33,7 @@
 
 ;; --- Data functions
 
-;; (defn- content-size
-;;   [node]
-;;   (let [current (count (:text node))
-;;         children-count (->> node :children (map content-size) (reduce +))]
-;;     (+ current children-count)))
-
+;; TODO: why we need this?
 ;; (defn- fix-gradients
 ;;   "Fix for the gradient types that need to be keywords"
 ;;   [content]
@@ -73,7 +68,7 @@
       nil)))
 
 (def empty-editor-state
-  (.createEmpty ^js draft/EditorState))
+  (ted/create-editor-state))
 
 (mf/defc text-shape-edit-html
   {::mf/wrap [mf/memo]
@@ -147,13 +142,9 @@
 
     [:div.text-editor {:ref self-ref
                        :class (dom/classnames
-                               :align-top (= (:vertical-align shape "top") "top")
+                               :align-top    (= (:vertical-align shape "top") "top")
                                :align-center (= (:vertical-align shape) "center")
                                :align-bottom (= (:vertical-align shape) "bottom"))}
-     [:style
-      "span { line-height: inherit; }
-       .gradient { background: var(--text-color); -webkit-text-fill-color: transparent; -webkit-background-clip: text;"]
-
      [:> draft/Editor
       {:on-change on-change
        :on-blur on-blur

@@ -64,9 +64,8 @@
     (update [_ state]
       (update state :workspace-editor-state
               (fn [_]
-                (some->> content
-                         (ted/import-content)
-                         (ted/create-editor-state)))))))
+                (ted/create-editor-state
+                 (some->> content ted/import-content)))))))
 
 (defn finalize-editor-state
   [{:keys [id] :as shape}]
@@ -160,25 +159,27 @@
 
 (defn update-text-attrs
   [{:keys [id attrs]}]
-  (ptk/reify ::update-text-attrs
-    ptk/UpdateEvent
-    (update [_ state]
-      (d/update-when state :workspace-editor-state ted/update-editor-current-inline-styles attrs))
+  (let [attrs (d/without-nils attrs)]
 
-    ptk/WatchEvent
-    (watch [_ state stream]
-      (cond
-        (some? (:workspace-editor-state state))
-        (rx/of (focus-editor))
+    (ptk/reify ::update-text-attrs
+      ptk/UpdateEvent
+      (update [_ state]
+        (d/update-when state :workspace-editor-state ted/update-editor-current-inline-styles attrs))
 
-        :else
-        (let [objects   (dwc/lookup-page-objects state)
-              shape     (get objects id)
+      ptk/WatchEvent
+      (watch [_ state stream]
+        (cond
+          (some? (:workspace-editor-state state))
+          (rx/of (focus-editor))
 
-              update-fn #(update-shape % txt/is-text-node? attrs)
-              shape-ids (cond (= (:type shape) :text)  [id]
-                              (= (:type shape) :group) (cp/get-children id objects))]
-          (rx/of (dwc/update-shapes shape-ids update-fn)))))))
+          :else
+          (let [objects   (dwc/lookup-page-objects state)
+                shape     (get objects id)
+
+                update-fn #(update-shape % txt/is-text-node? attrs)
+                shape-ids (cond (= (:type shape) :text)  [id]
+                                (= (:type shape) :group) (cp/get-children id objects))]
+            (rx/of (dwc/update-shapes shape-ids update-fn))))))))
 
 ;; --- RESIZE UTILS
 

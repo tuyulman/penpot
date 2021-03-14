@@ -60,43 +60,75 @@
 
 (defn generate-text-styles*
   [data]
-  (let [data            (cond-> data (map? data) (clj->js))
-        letter-spacing  (obj/get data "letter-spacing")
-        text-decoration (obj/get data "text-decoration")
-        text-transform  (obj/get data "text-transform")
-        line-height     (obj/get data "line-height")
+  ;; (prn "generate-text-styles*" data)
+  (let [
+        ;; data            (cond-> data (map? data) (clj->js))
 
-        font-id         (obj/get data "font-id" (:font-id txt/default-text-attrs))
-        font-variant-id (obj/get data "font-variant-id")
+        letter-spacing  (:letter-spacing data)
+        text-decoration (:text-decoration data)
+        text-transform  (:text-transform data)
+        line-height     (:line-height data)
 
-        font-family     (obj/get data "font-family")
-        font-size       (obj/get data "font-size")
+        ;; letter-spacing  (obj/get data "letter-spacing")
+        ;; text-decoration (obj/get data "text-decoration")
+        ;; text-transform  (obj/get data "text-transform")
+        ;; line-height     (obj/get data "line-height")
 
-        fill-color (obj/get data "fill-color")
-        fill-opacity (obj/get data "fill-opacity" 1)
-        fill-color-gradient (obj/get data "fill-color-gradient" nil)
-        fill-color-gradient (when fill-color-gradient
-                              (-> (js->clj fill-color-gradient :keywordize-keys true)
-                                  (update :type keyword)))
+        font-id         (:font-id data (:font-id txt/default-text-attrs))
+        font-variant-id (:font-variant-id data)
+
+        ;; font-id         (obj/get data "font-id" (:font-id txt/default-text-attrs))
+        ;; font-variant-id (obj/get data "font-variant-id")
+
+
+        font-family     (:font-family data)
+        font-size       (:font-size data)
+        ;; font-family     (obj/get data "font-family")
+        ;; font-size       (obj/get data "font-size")
+
+
+        fill-color      (:fill-color data)
+        fill-opacity    (:fill-opacity data)
+
+        ;; fill-color (obj/get data "fill-color")
+        ;; fill-opacity (obj/get data "fill-opacity" 1)
+
+        fill-gradient   (:fill-color-gradient data)
+
+
+        ;; fill-color-gradient (obj/get data "fill-color-gradient" nil)
+        ;; fill-color-gradient (when fill-color-gradient
+        ;;                       (-> (js->clj fill-color-gradient :keywordize-keys true)
+        ;;                           (update :type keyword)))
 
         ;; Uncomment this to allow to remove text colors. This could break the texts that already exist
         ;;[r g b a] (if (nil? fill-color)
         ;;            [0 0 0 0] ;; Transparent color
         ;;            (uc/hex->rgba fill-color fill-opacity))
 
-        [r g b a] (uc/hex->rgba fill-color fill-opacity)
+        [r g b a]  (uc/hex->rgba fill-color fill-opacity)
 
-        text-color (if fill-color-gradient
-                     (uc/gradient->css (js->clj fill-color-gradient))
-                     (str/format "rgba(%s, %s, %s, %s)" r g b a))
+        text-color (str/format "rgba(%s, %s, %s, %s)" r g b a)
 
-        fontsdb (deref fonts/fontsdb)
+
+        ;; text-color (if fill-gradient
+        ;;              (uc/gradient->css fill-gradient)
+        ;;              (str/format "rgba(%s, %s, %s, %s)" r g b a))
+
+        fontsdb    (deref fonts/fontsdb)
 
         base #js {:textDecoration text-decoration
                   :textTransform text-transform
                   :lineHeight (or line-height "inherit")
-                  :color text-color
-                  "--text-color" text-color}]
+                  :color text-color}]
+
+    (when-let [gradient (:fill-color-gradient data)]
+      (let [text-color (uc/gradient->css fill-gradient)]
+        (-> base
+            (obj/set! "background" "var(--text-color)")
+            (obj/set! "WebkitTextFillColor" "transparent")
+            (obj/set! "WebkitBackgroundClip" "text")
+            (obj/set! "--text-color" text-color))))
 
     (when (and (string? letter-spacing)
                (pos? (alength letter-spacing)))

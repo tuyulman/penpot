@@ -58,7 +58,6 @@
   [block shape]
   (let [type (.getType ^js block)
         data (.getData ^js block)]
-    ;; (js/console.log "render-block" "data" data)
     (case type
       "unstyled"
       #js {:editable true

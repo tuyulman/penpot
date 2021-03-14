@@ -9,7 +9,6 @@
 
 (ns app.main.data.workspace.texts
   (:require
-   ["draft-js" :as draft]
    [app.common.math :as mth]
    [app.common.attrs :as attrs]
    [app.common.text :as txt]
@@ -65,35 +64,19 @@
     (update [_ state]
       (update state :workspace-editor-state
               (fn [_]
-                (if content
-                  (->> content
-                       (ted/penpot->draft)
-                       (clj->js)
-                       (draft/convertFromRaw)
-                       (.createWithContent ^js draft/EditorState))
-                  (.createEmpty ^js draft/EditorState)))))))
+                (some->> content
+                         (ted/import-content)
+                         (ted/create-editor-state)))))))
 
 (defn finalize-editor-state
   [{:keys [id] :as shape}]
   (ptk/reify ::finalize-editor-state
     ptk/WatchEvent
     (watch [_ state stream]
-      (let [estate  (:workspace-editor-state state)
-            content (.getCurrentContent ^js estate)]
-        (if ^boolean (.hasText ^js content)
-          (let [content (-> content
-                            (draft/convertToRaw)
-                            (js->clj :keywordize-keys true)
-                            (ted/draft->penpot))
-                ]
-            ;; (println "=============================")
-            ;; (println "====== draft->penpot:")
-            ;; (cljs.pprint/pprint (txt/draft->penpot content))
-            ;; (println "====== original:")
-            ;; (cljs.pprint/pprint content)
-            ;; (println "====== penpot->draft:")
-            ;; (cljs.pprint/pprint (txt/penpot->draft (txt/draft->penpot content)))
-
+      (let [content (-> (:workspace-editor-state state)
+                        (ted/get-editor-current-content))]
+        (if (ted/content-has-text? content)
+          (let [content (ted/export-content content)]
             (rx/merge
              (rx/of (update-editor-state nil))
              (when (not= content (:content shape))
@@ -105,31 +88,12 @@
   "Select all content of the current editor. When not editor found this
   event is noop."
   []
-  (letfn [(select-all [state]
-            (let [content   (.getCurrentContent ^js state)
-                  fblock    (.. ^js content getBlockMap first)
-                  lblock    (.. ^js content getBlockMap last)
-                  fbk       (.getKey ^js fblock)
-                  lbk       (.getKey ^js lblock)
-                  lbl       (.getLength ^js lblock)
-                  params    #js {:anchorKey fbk
-                                 :anchorOffset 0
-                                 :focusKey lbk
-                                 :focusOffset lbl}
-                  selection (draft/SelectionState. params)]
-              (.forceSelection ^js draft/EditorState state selection)))]
-    (ptk/reify ::editor-select-all
-      ptk/UpdateEvent
-      (update [_ state]
-        (d/update-when state :workspace-editor-state select-all)))))
+  (ptk/reify ::editor-select-all
+    ptk/UpdateEvent
+    (update [_ state]
+      (d/update-when state :workspace-editor-state ted/editor-select-all))))
 
 ;; --- Helpers
-
-(defn- get-editor-current-block
-  [state]
-  (let [content (.getCurrentContent ^js state)
-        key     (.. ^js state getSelection getStartKey)]
-    (.getBlockForKey ^js content key)))
 
 (defn- shape-current-values
   [shape pred attrs]
@@ -143,23 +107,25 @@
 (defn current-paragraph-values
   [{:keys [editor-state attrs shape]}]
   (if editor-state
-    (let [block (get-editor-current-block editor-state)]
-      (-> (.getData ^js block)
-          (ted/immutable-map->map)
-          (select-keys attrs)))
-
+    (-> (ted/get-editor-current-block-data editor-state)
+        (select-keys attrs))
     (shape-current-values shape txt/is-paragraph-node? attrs)))
 
 (defn current-text-values
   [{:keys [editor-state attrs shape]}]
   (if editor-state
-    (-> (.getCurrentInlineStyle ^js editor-state)
-        (ted/styles-to-attrs)
+    (-> (ted/get-editor-current-inline-styles editor-state)
         (select-keys attrs))
     (shape-current-values shape txt/is-text-node? attrs)))
 
 
 ;; --- TEXT EDITION IMPL
+
+(defn- update-shape
+  [shape pred-fn attrs]
+  (let [merge-attrs #(attrs/merge % attrs)
+        transform   #(txt/transform-nodes pred-fn merge-attrs %)]
+    (update shape :content transform)))
 
 (defn update-root-attrs
   [{:keys [id attrs]}]
@@ -171,83 +137,48 @@
 
 (defn update-paragraph-attrs
   [{:keys [id attrs]}]
-  (letfn [(update-shape-blocks [shape]
-            (let [merge-attrs #(attrs/merge % attrs)]
-              (update shape :content #(txt/transform-nodes txt/is-paragraph-node? merge-attrs %))))
+  (ptk/reify ::update-paragraph-attrs
+    ptk/UpdateEvent
+    (update [_ state]
+      (d/update-when state :workspace-editor-state ted/update-editor-current-block-data attrs))
 
-          (update-editor-current-block [state]
-            (loop [selection (.getSelection ^js state)
-                   start-key (.getStartKey ^js selection)
-                   end-key   (.getEndKey ^js selection)
-                   content   (.getCurrentContent ^js state)
-                   target    selection]
-              (if (and (not= start-key end-key)
-                       (zero? (.getEndOffset ^js selection)))
-                (let [before-block (.getBlockBefore ^js content end-key)]
-                  (recur selection
-                         start-key
-                         (.getKey ^js before-block)
-                         content
-                         (.merge ^js target
-                                 #js {:anchorKey start-key
-                                      :anchorOffset (.getStartOffset ^js selection)
-                                      :focusKey end-key
-                                      :focusOffset (.getLength ^js before-block)
-                                      :isBackward false})))
-                (.push ^js draft/EditorState
-                       state
-                       (.mergeBlockData ^js draft/Modifier content target (clj->js attrs))
-                       "change-block-data"))))]
+    ptk/WatchEvent
+    (watch [_ state stream]
+      (cond
+        (some? (:workspace-editor-state state))
+        (rx/of (focus-editor))
 
-    (ptk/reify ::update-paragraph-attrs
-      ptk/UpdateEvent
-      (update [_ state]
-        (d/update-when state :workspace-editor-state update-editor-current-block))
+        :else
+        (let [objects   (dwc/lookup-page-objects state)
+              shape     (get objects id)
 
-      ptk/WatchEvent
-      (watch [_ state stream]
-        (if (:workspace-editor-state state)
-          (rx/of focus-editor)
-          (let [objects (dwc/lookup-page-objects state)
-                shape   (get objects id)
-                ids     (cond (= (:type shape) :text)  [id]
+              update-fn #(update-shape % txt/is-paragraph-node? attrs)
+              shape-ids (cond (= (:type shape) :text)  [id]
                               (= (:type shape) :group) (cp/get-children id objects))]
-            (rx/of (dwc/update-shapes ids update-shape-blocks))))))))
+
+          (rx/of (dwc/update-shapes shape-ids update-fn)))))))
 
 (defn update-text-attrs
   [{:keys [id attrs]}]
-  (letfn [(update-shape-inline-style [shape]
-            (let [merge-attrs #(attrs/merge % attrs)]
-              (update shape :content #(txt/transform-nodes txt/is-text-node? merge-attrs %))))
+  (ptk/reify ::update-text-attrs
+    ptk/UpdateEvent
+    (update [_ state]
+      (d/update-when state :workspace-editor-state ted/update-editor-current-inline-styles attrs))
 
-          (update-editor-inline-style [state]
-            (let [selection (.getSelection ^js state)
-                  content   (.getCurrentContent ^js state)
-                  styles    (ted/attrs-to-styles attrs)]
-              (reduce (fn [state style]
-                        (let [modifier (.applyInlineStyle draft/Modifier
-                                                          (.getCurrentContent ^js state)
-                                                          selection
-                                                          style)]
-                          (.push draft/EditorState state modifier "change-inline-style")))
-                      state
-                      styles)))]
+    ptk/WatchEvent
+    (watch [_ state stream]
+      (cond
+        (some? (:workspace-editor-state state))
+        (rx/of (focus-editor))
 
-    (ptk/reify ::update-text-attrs
-      ptk/UpdateEvent
-      (update [_ state]
-        (d/update-when state :workspace-editor-state update-editor-inline-style))
+        :else
+        (let [objects   (dwc/lookup-page-objects state)
+              shape     (get objects id)
 
-      ptk/WatchEvent
-      (watch [_ state stream]
-        (if (:workspace-editor-state state)
-          (rx/of (focus-editor))
-          (let [objects (dwc/lookup-page-objects state)
-                shape   (get objects id)
-                ids     (cond (= (:type shape) :text)  [id]
+              update-fn #(update-shape % txt/is-text-node? attrs)
+              shape-ids (cond (= (:type shape) :text)  [id]
                               (= (:type shape) :group) (cp/get-children id objects))]
-            (rx/of (dwc/update-shapes ids update-shape-inline-style))))))))
-
+          (rx/of (dwc/update-shapes shape-ids update-fn)))))))
 
 ;; --- RESIZE UTILS
 
@@ -263,7 +194,7 @@
   (ptk/reify ::start-edit-if-selected
     ptk/UpdateEvent
     (update [_ state]
-      (let [objects (dwc/lookup-page-objects state)
+      (let [objects  (dwc/lookup-page-objects state)
             selected (->> state :workspace-local :selected (map #(get objects %)))]
         (cond-> state
           (and (= 1 (count selected))

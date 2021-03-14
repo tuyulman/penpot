@@ -152,14 +152,12 @@
                                :align-bottom (= (:vertical-align shape) "bottom"))}
      [:style
       "span { line-height: inherit; }
-      .gradient { background: var(--text-color); -webkit-text-fill-color: transparent; -webkit-background-clip: text;"]
+       .gradient { background: var(--text-color); -webkit-text-fill-color: transparent; -webkit-background-clip: text;"]
 
      [:> draft/Editor
       {:on-change on-change
        :on-blur on-blur
-       :on-select (fn [event]
-                    (js/console.log event))
-       :custom-style-fn (fn [styles block]
+       :custom-style-fn (fn [styles _]
                           (-> (ted/styles-to-attrs styles)
                               (sts/generate-text-styles*)))
        :block-renderer-fn #(render-block % shape)
@@ -171,8 +169,7 @@
    ::mf/wrap-props false
    ::mf/forward-ref true}
   [props ref]
-  (let [shape (obj/get props "shape")
-        {:keys [x y width height grow-type]} shape]
+  (let [{:keys [x y width height grow-type] :as shape} (obj/get props "shape")]
     [:foreignObject {:transform (gsh/transform-matrix shape)
                      :x x :y y
                      :width  (if (#{:auto-width} grow-type) 100000 width)

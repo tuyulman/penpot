@@ -10,11 +10,14 @@
 (ns app.util.text-editor
   "Draft related abstraction functions."
   (:require
-   [cuerdas.core :as str]
+   ["draft-js" :as draft]
+   [app.common.attrs :as attrs]
+   [app.common.data :as d]
    [app.util.transit :as t]
    [clojure.walk :as walk]
-   [app.common.data :as d]
-   [app.common.attrs :as attrs]))
+   [cuerdas.core :as str]))
+
+;; --- INLINE STYLES ENCODING
 
 (defn encode-style-value
   [v]
@@ -40,11 +43,6 @@
         v (encode-style-value val)]
     (str "PENPOT$$$" k "$$$" v)))
 
-(defn encode-style-prefix
-  [key]
-  (let [k (d/name key)]
-    (str "PENPOT$$$" k "$$$")))
-
 (defn attrs-to-styles
   [attrs]
   (reduce-kv (fn [res k v]
@@ -61,14 +59,7 @@
            (transient {})
            (seq styles))))
 
-(defn styles-to-values
-  [styles]
-  (persistent!
-   (reduce (fn [result style]
-             (let [[_ k v] (str/split style "$$$" 3)]
-               (conj! result (decode-style-value v))))
-           (transient #{})
-           (seq styles))))
+;; --- CONVERSION
 
 (defn parse-style-ranges
   "Parses draft-js style ranges, converting encoded style name into a
@@ -97,23 +88,6 @@
                      (range offset (+ offset length)))
              (rest ranges))
       (persistent! result))))
-
-;; NOTE: this function will become useles
-(defn parse-sections
-  "Parses the draft-js block in to contiguos sections based on inline
-  styles associated with ranges of text."
-  [{:keys [text inlineStyleRanges] :as block}]
-  (let [ranges (parse-style-ranges inlineStyleRanges)]
-    (->> (build-style-index text ranges)
-         (d/enumerate)
-         (partition-by second)
-         (map (fn [part]
-                (let [start (ffirst part)
-                      end   (inc (first (last part)))]
-                  {:start start
-                   :end   end
-                   :text  (subs text start end)
-                   :attrs (second (first part))}))))))
 
 ;; TODO: expect JS data sturcture
 (defn draft->penpot
@@ -190,12 +164,107 @@
              :type "unstyled"
              :entityRanges []
              :inlineStyleRanges (calc-ranges paragraph)})]
-
-    {:blocks (->> (tree-seq map? :children node)
-                  (filter #(= (:type %) "paragraph"))
-                  (mapv build-block))
-     :entityMap {}}))
+    (clj->js
+     {:blocks (->> (tree-seq map? :children node)
+                   (filter #(= (:type %) "paragraph"))
+                   (mapv build-block))
+      :entityMap {}})))
 
 (defn immutable-map->map
   [obj]
   (into {} (map (fn [[k v]] [(keyword k) v])) (seq obj)))
+
+
+;; --- DRAFT-JS HELPERS
+
+(defn create-editor-state
+  ([]
+   (.createEmpty ^js draft/EditorState))
+  ([content]
+   (.createWithContent ^js draft/EditorState content)))
+
+(defn import-content
+  [content]
+  (-> content penpot->draft draft/convertFromRaw))
+
+(defn export-content
+  [content]
+  (-> content
+      (draft/convertToRaw)
+      (js->clj :keywordize-keys true)
+      (draft->penpot)))
+
+(defn get-editor-current-content
+  [state]
+  (.getCurrentContent ^js state))
+
+(defn ^boolean content-has-text?
+  [content]
+  (.hasText ^js content))
+
+(defn editor-select-all
+  [state]
+  (let [content   (get-editor-current-content state)
+        fblock    (.. ^js content getBlockMap first)
+        lblock    (.. ^js content getBlockMap last)
+        fbk       (.getKey ^js fblock)
+        lbk       (.getKey ^js lblock)
+        lbl       (.getLength ^js lblock)
+        params    #js {:anchorKey fbk
+                       :anchorOffset 0
+                       :focusKey lbk
+                       :focusOffset lbl}
+        selection (draft/SelectionState. params)]
+    (.forceSelection ^js draft/EditorState state selection)))
+
+(defn get-editor-current-block-data
+  [state]
+  (let [content (.getCurrentContent ^js state)
+        key     (.. ^js state getSelection getStartKey)
+        block   (.getBlockForKey ^js content key)]
+    (-> (.getData ^js block)
+        (immutable-map->map))))
+
+(defn get-editor-current-inline-styles
+  [state]
+  (-> (.getCurrentInlineStyle ^js state)
+      (styles-to-attrs)))
+
+(defn update-editor-current-block-data
+  [state attrs]
+  (loop [selection (.getSelection ^js state)
+         start-key (.getStartKey ^js selection)
+         end-key   (.getEndKey ^js selection)
+         content   (.getCurrentContent ^js state)
+         target    selection]
+    (if (and (not= start-key end-key)
+             (zero? (.getEndOffset ^js selection)))
+      (let [before-block (.getBlockBefore ^js content end-key)]
+        (recur selection
+               start-key
+               (.getKey ^js before-block)
+               content
+               (.merge ^js target
+                       #js {:anchorKey start-key
+                            :anchorOffset (.getStartOffset ^js selection)
+                            :focusKey end-key
+                            :focusOffset (.getLength ^js before-block)
+                            :isBackward false})))
+      (.push ^js draft/EditorState
+             state
+             (.mergeBlockData ^js draft/Modifier content target (clj->js attrs))
+             "change-block-data"))))
+
+(defn update-editor-current-inline-styles
+  [state attrs]
+  (let [selection (.getSelection ^js state)
+        content   (.getCurrentContent ^js state)
+        styles    (attrs-to-styles attrs)]
+    (reduce (fn [state style]
+              (let [modifier (.applyInlineStyle draft/Modifier
+                                                (.getCurrentContent ^js state)
+                                                selection
+                                                style)]
+                (.push draft/EditorState state modifier "change-inline-style")))
+            state
+            styles)))

@@ -5,7 +5,7 @@
 ;; Copyright (c) UXBOX Labs SL
 
 (ns app.media
-  "Media postprocessing."
+  "Media & Font postprocessing."
   (:require
    [app.common.data :as d]
    [app.common.exceptions :as ex]
@@ -24,9 +24,12 @@
 
 ;; --- Generic specs
 
+(s/def ::image-content-type cm/valid-image-types)
+(s/def ::font-content-type cm/valid-font-types)
+
 (s/def :internal.http.upload/filename ::us/string)
 (s/def :internal.http.upload/size ::us/integer)
-(s/def :internal.http.upload/content-type cm/valid-media-types)
+(s/def :internal.http.upload/content-type ::us/string)
 (s/def :internal.http.upload/tempfile any?)
 
 (s/def ::upload
@@ -34,7 +37,6 @@
                    :internal.http.upload/size
                    :internal.http.upload/tempfile
                    :internal.http.upload/content-type]))
-
 
 ;; --- Thumbnails Generation
 
@@ -185,7 +187,7 @@
 ;; --- Utility functions
 
 (defn validate-media-type
-  ([mtype] (validate-media-type mtype cm/valid-media-types))
+  ([mtype] (validate-media-type mtype cm/valid-image-types))
   ([mtype allowed]
    (when-not (contains? allowed mtype)
      (ex/raise :type :validation

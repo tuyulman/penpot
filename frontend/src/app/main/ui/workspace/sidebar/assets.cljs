@@ -262,7 +262,7 @@
           (fn [path]
             (fn [event]
               (dom/stop-propagation event)
-              (swap! state update :folded-groups 
+              (swap! state update :folded-groups
                      toggle-folded-group path))))
 
         on-group
@@ -467,7 +467,7 @@
           (fn [path]
             (fn [event]
               (dom/stop-propagation event)
-              (swap! state update :folded-groups 
+              (swap! state update :folded-groups
                      toggle-folded-group path))))
 
         on-group
@@ -493,7 +493,7 @@
       (when local?
         [:div.assets-button {:on-click add-graphic}
          i/plus
-         [:& file-uploader {:accept cm/str-media-types
+         [:& file-uploader {:accept cm/str-image-types
                             :multi true
                             :input-ref input-ref
                             :on-selected on-selected}]])]

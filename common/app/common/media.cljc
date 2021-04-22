@@ -9,10 +9,10 @@
    [clojure.spec.alpha :as s]
    [cuerdas.core :as str]))
 
-(def valid-media-types
-  #{"image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml"})
-
-(def str-media-types (str/join "," valid-media-types))
+(def valid-font-types #{"font/ttf" "font/woff2" "font/woff", "font/otf"})
+(def valid-image-types #{"image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml"})
+(def str-image-types (str/join "," valid-image-types))
+(def str-font-types (str/join "," valid-font-types))
 
 (defn format->extension
   [format]

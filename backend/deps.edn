@@ -47,7 +47,11 @@
   org.postgresql/postgresql {:mvn/version "42.2.19"}
   com.zaxxer/HikariCP {:mvn/version "4.0.3"}
 
-  funcool/datoteka {:mvn/version "1.2.0"}
+  funcool/datoteka
+  {:git/url "https://github.com/funcool/datoteka.git"
+   :sha "cbff7206cd218c185cda8a9f2b3600a3a13d044c"
+   :deps/manifest :pom}
+
   funcool/promesa {:mvn/version "6.0.0"}
   funcool/cuerdas {:mvn/version "2020.03.26-3"}
 

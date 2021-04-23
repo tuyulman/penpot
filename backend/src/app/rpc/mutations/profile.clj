@@ -402,7 +402,7 @@
 (declare update-profile-photo)
 
 (s/def ::content-type ::media/image-content-type)
-(s/def ::file (s/add ::media/upload (s/keys :req-un [::content-type])))
+(s/def ::file (s/and ::media/upload (s/keys :req-un [::content-type])))
 
 (s/def ::update-profile-photo
   (s/keys :req-un [::profile-id ::file]))

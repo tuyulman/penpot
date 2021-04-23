@@ -250,7 +250,7 @@
 (declare upload-photo)
 
 (s/def ::content-type ::media/image-content-type)
-(s/def ::file (s/add ::media/upload (s/keys :req-un [::content-type])))
+(s/def ::file (s/and ::media/upload (s/keys :req-un [::content-type])))
 
 (s/def ::update-team-photo
   (s/keys :req-un [::profile-id ::team-id ::file]))

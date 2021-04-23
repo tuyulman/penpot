@@ -6,19 +6,14 @@
 
 (ns app.main.data.dashboard.fonts
   (:require
-   ["opentype.js" :as ot]
    [app.common.exceptions :as ex]
    [app.common.data :as d]
-   [app.common.pages :as cp]
+   [app.common.media :as cm]
    [app.common.spec :as us]
    [app.common.uuid :as uuid]
    [app.main.repo :as rp]
-   [app.main.data.users :as du]
-   [app.util.router :as rt]
    [app.util.time :as dt]
    [app.util.timers :as ts]
-   [app.util.avatars :as avatars]
-   [app.main.data.media :as di]
    [app.main.data.messages :as dm]
    [app.util.webapi :as wa]
    [app.util.object :as obj]
@@ -28,66 +23,54 @@
    [cuerdas.core :as str]
    [potok.core :as ptk]))
 
-(defn- parse-weight
-  [variant]
-  (cond
-    (re-seq #"(?i)(?:hairline|thin)" variant)           100
-    (re-seq #"(?i)(?:extra light|ultra light)" variant) 200
-    (re-seq #"(?i)(?:light)" variant)                   300
-    (re-seq #"(?i)(?:normal|regular)" variant)          400
-    (re-seq #"(?i)(?:medium)" variant)                  500
-    (re-seq #"(?i)(?:semi bold|demi bold)" variant)     600
-    (re-seq #"(?i)(?:bold)" variant)                    700
-    (re-seq #"(?i)(?:extra bold|ultra bold)" variant)   800
-    (re-seq #"(?i)(?:black|heavy)" variant)             900
-    (re-seq #"(?i)(?:extra black|ultra black)" variant) 950
-    :else                                               400))
+;; (defn delete-font
+;;   [{:keys [id status] :as font}]
+;;   (ptk/reify ::delete-font
+;;     ptk/UpdateEvent
+;;     (update [_ state]
+;;       (prn "delete-font" status)
+;;       (if (= status :draft)
+;;         (update state :dashboard-fonts dissoc id)
+;;         state))))
 
-(defn- parse-style
-  [variant]
-  (if (re-seq #"(?i)(?:italic)" variant)
-    "italic"
-    "normal"))
+(defn fetch-fonts
+  [{:keys [id] :as team}]
+  (ptk/reify ::fetch-fonts
+    ptk/WatchEvent
+    (watch [_ state stream]
+      (->> (rp/query! :team-font-variants {:team-id id})
+           (rx/map (fn [items]
+                     #(assoc % :dashboard-fonts (d/index-by :id items))))))))
 
-(defn- parse-mtype
-  [mtype]
-  (case mtype
-    "application/vnd.oasis.opendocument.formula-template" "font/otf"
-    mtype))
+(defn add-font
+  [font]
+  (ptk/reify ::add-font
+    ptk/UpdateEvent
+    (update [_ state]
+      (update state :dashboard-fonts assoc (:id font) font))))
 
-(defn- parse-font
-  [{:keys [data mtype] :as params}]
-  (let [font    (ot/parse data)
-        family  (or (.getEnglishName ^js font "preferredFamily")
-                    (.getEnglishName ^js font "fontFamily"))
-        variant (or (.getEnglishName ^js font "preferredSubfamily")
-                    (.getEnglishName ^js font "fontSubfamily"))]
-    {:data (js/Uint8Array. data)
-     :mtype mtype
-     :font-id (str "custom-" (str/slug family))
-     :font-family family
-     :font-weight (parse-weight variant)
-     :font-style  (parse-style variant)}))
+;; (defn upload-font
+;;   [{:keys [id] :as font}]
+;;   (ptk/reify ::upload-font
+;;     ptk/WatchEvent
+;;     (watch [_ state stream]
+;;       (let [{:keys [on-success on-error]
+;;              :or {on-success identity
+;;                   on-error rx/throw}} (meta params)]
+;;         (->> (rp/mutation! :create-font-variant font)
+;;              (rx/tap on-success)
+;;              (rx/catch on-error))))))
 
-(defn prepare-fonts
-  [blobs]
-  (ptk/reify ::prepare-fonts
-    ptk/EffectEvent
-    (effect [_ state stream]
-      (->> (rx/from blobs)
-           (rx/mapcat (fn [blob]
-                        (->> (wa/read-file-as-array-buffer blob)
-                             (rx/map (fn [data]
-                                       {:data data
-                                        :mtype (parse-mtype (.-type blob))})))))
-           (rx/map parse-font)
-           (rx/transform (d/distinct-xf (juxt :font-family :font-weight :font-style)))
-           (rx/subs (fn [font]
-                      (prn (dissoc font :data))
-                      ;; (js/console.log (t/encode font))
-                      #_(let [data  (.toTables ^js font)
-                            table (d/seek #(= "name" (obj/get % "tableName"))
-                                          (seq (.-tables ^js data)))]
-                        (js/console.log table)))
-                    (fn [error]
-                      (js/console.error "test" error)))))))
+;; (defn add-font
+;;   "Add fonts to the state in a pending to upload state."
+;;   [font]
+;;   (ptk/reify ::add-font
+;;     ptk/UpdateEvent
+;;     (update [_ state]
+;;       (let [id   (uuid/next)
+;;             font (-> font
+;;                      (assoc :created-at (dt/now))
+;;                      (assoc :id id)
+;;                      (assoc :status :draft))]
+;;         (js/console.log (clj->js font))
+;;         (assoc-in state [:dashboard-fonts id] font)))))

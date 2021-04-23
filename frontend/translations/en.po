@@ -6,11 +6,29 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
+msgid "modals.delete-font.title"
+msgstr "Deleting font"
+
+msgid "modals.delete-font.message"
+msgstr "Are you sure you want to delete this font? It will not load if is used in a file."
+
 msgid "labels.fonts"
 msgstr "Fonts"
 
+msgid "labels.installed-fonts"
+msgstr "Installed fonts"
+
+msgid "labels.font-family"
+msgstr "Font Family"
+
+msgid "labels.font-variant"
+msgstr "Style"
+
 msgid "labels.custom-fonts"
 msgstr "Custom fonts"
+
+msgid "labels.search-font"
+msgstr "Search font"
 
 msgid "labels.font-providers"
 msgstr "Font providers"

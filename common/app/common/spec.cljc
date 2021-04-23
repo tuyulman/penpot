@@ -108,6 +108,20 @@
 (s/def ::point gpt/point?)
 (s/def ::id ::uuid)
 
+(defn bytes?
+  "Test if a first parameter is a byte
+  array or not."
+  [x]
+  (if (nil? x)
+    false
+    #?(:clj (= (Class/forName "[B")
+               (.getClass ^Object x))
+       :cljs (or (instance? js/Uint8Array x)
+                 (instance? js/ArrayBuffer x)))))
+
+(s/def ::bytes bytes?)
+
+
 (s/def ::safe-integer
   #(and
     (int? %)

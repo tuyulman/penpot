@@ -2,42 +2,36 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  // justify-content: center;
-}
 
-.dashboard-fonts-hero {
-  padding: $x-big;
-  background-color: $color-white;
-  margin-top: $x-big;
-  max-width: 1000px;
-  width: 100%;
-  display: flex;
-  justify-content: space-between;
+  .dashboard-installed-fonts {
+    max-width: 1000px;
+    width: 100%;
+    display: flex;
+    margin-top: $big;
+    flex-direction: column;
 
-  .desc {
-    h2 {
-      margin-bottom: $medium;
+    h3 {
+      font-size: $fs14;
+      color: $color-gray-30;
+      margin: $x-small;
+    }
+
+    .font-item {
       color: $color-black;
     }
-    width: 75%;
-    color: $color-gray-40;
   }
-}
-.dashboard-fonts-table {
-  .table-header {
-    margin-top: 30px;
+
+  .installed-fonts-header {
+    color: $color-gray-40;
     display: flex;
-    min-width: 1000px;
-    width: 100%;
     height: 40px;
+    font-size: $fs12;
     background-color: $color-white;
-    justify-content: space-between;
     align-items: center;
-    padding: 0px 24px;
+    padding: 0px $big;
 
     > div {
       width: 30%;
-      color: $color-gray-40;
     }
 
     .search-input {
@@ -48,36 +42,52 @@
       input {
         border: 1px solid $color-gray-30;
         border-radius: $br-small;
+        width: 130px;
         padding: $x-small;
         margin: 0px;
       }
     }
-
   }
 
-  .table-row {
-    display: flex;
-    height: 40px;
+  .fonts-group {
+    margin-top: $big;
+  }
 
-    margin-top: 10px;
+  .font-item {
+    color: $color-gray-40;
+    font-size: $fs14;
+    background-color: $color-white;
     display: flex;
     min-width: 1000px;
     width: 100%;
-    height: 40px;
-    justify-content: space-between;
+    height: 97px;
     align-items: center;
-    padding: 0px 24px;
+    padding: $big;
+
+    &:not(:first-child) {
+      border-top: 1px solid $color-gray-10;
+    }
 
     input {
       border: 1px solid $color-gray-30;
       border-radius: $br-small;
       margin: 0px;
       padding: $small;
+      font-size: $fs12;
     }
 
     > div {
       width: 30%;
-      color: $color-gray-40;
+    }
+
+    .variant {
+      font-size: $fs14;
+    }
+
+    .filenames {
+      display: flex;
+      flex-direction: column;
+      font-size: $fs12;
     }
 
     .options {
@@ -85,15 +95,50 @@
       justify-content: flex-end;
 
       .icon {
+        width: $big;
+        cursor: pointer;
         display: flex;
         margin-left: 10px;
+        justify-content: center;
         align-items: center;
         svg {
-          transform: rotate(45deg);
+          // transform: rotate(45deg);
           width: 16px;
           height: 16px;
         }
+
+        &.close {
+          svg {
+            transform: rotate(45deg);
+          }
+        }
+
       }
+    }
+  }
+
+
+  .dashboard-fonts-upload {
+    max-width: 1000px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .dashboard-fonts-hero {
+    padding: $x-big;
+    background-color: $color-white;
+    margin-top: $x-big;
+    display: flex;
+    justify-content: space-between;
+
+    .desc {
+      h2 {
+        margin-bottom: $medium;
+        color: $color-black;
+      }
+      width: 75%;
+      color: $color-gray-40;
     }
   }
 }

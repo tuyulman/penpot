@@ -8,18 +8,28 @@
   (:require
    ["opentype.js" :as ot]
    [app.common.media :as cm]
+   [app.common.uuid :as uuid]
    [app.main.data.dashboard :as dd]
    [app.main.data.dashboard.fonts :as df]
    [app.main.data.modal :as modal]
    [app.main.ui.components.file-uploader :refer [file-uploader]]
+   [app.main.ui.components.context-menu :refer [context-menu]]
    [app.main.store :as st]
+   [app.main.repo :as rp]
+   [app.main.refs :as refs]
    [app.main.ui.icons :as i]
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
+   [app.util.logging :as log]
    [app.util.keyboard :as kbd]
    [app.util.router :as rt]
+   [app.util.webapi :as wa]
+   [cuerdas.core :as str]
+   [beicon.core :as rx]
    [okulary.core :as l]
    [rumext.alpha :as mf]))
+
+(log/set-level! :trace)
 
 (defn- use-set-page-title
   [team section]
@@ -61,69 +71,222 @@
 
      [:div]]))
 
+(defn- prepare-fonts
+  [blobs]
+  (letfn [(prepare [{:keys [font type name data] :as params}]
+            (let [family  (or (.getEnglishName ^js font "preferredFamily")
+                              (.getEnglishName ^js font "fontFamily"))
+                  variant (or (.getEnglishName ^js font "preferredSubfamily")
+                              (.getEnglishName ^js font "fontSubfamily"))]
+              {:content {:data (js/Uint8Array. data)
+                         :name name
+                         :type type}
+               :font-id (str "custom-" (str/slug family))
+               :font-family family
+               :font-weight (cm/parse-font-weight variant)
+               :font-style  (cm/parse-font-style variant)}))
 
-(mf/defc upload-fonts-button
-  [props]
-  (let [input-ref (mf/use-ref)
+          (parse-mtype [mtype]
+            (case mtype
+              "application/vnd.oasis.opendocument.formula-template" "font/otf"
+              mtype))
+
+          (parse-font [{:keys [data] :as params}]
+            (try
+              (assoc params :font (ot/parse data))
+              (catch :default e
+                (log/warn :msg (str/fmt "skiping file %s, unsupported format" (:name params)))
+                nil)))
+
+          (read-blob [blob]
+            (->> (wa/read-file-as-array-buffer blob)
+                 (rx/map (fn [data]
+                           {:data data
+                            :name (.-name blob)
+                            :type (parse-mtype (.-type blob))}))))]
+
+    (->> (rx/from blobs)
+         (rx/mapcat read-blob)
+         (rx/map parse-font)
+         (rx/filter some?)
+         (rx/map prepare))))
+
+(mf/defc fonts-upload
+  [{:keys [team] :as props}]
+  (let [fonts     (mf/use-state {})
+        input-ref (mf/use-ref)
 
         on-click
         (mf/use-callback #(dom/click (mf/ref-val input-ref)))
 
+        font-key-fn
+        (mf/use-callback (juxt :font-family :font-weight :font-style))
+
         on-selected
         (mf/use-callback
+         (mf/deps team)
          (fn [blobs]
-           (st/emit! (df/prepare-fonts blobs))))]
+           (->> (prepare-fonts blobs)
+                (rx/subs (fn [{:keys [content] :as font}]
+                           (let [key (font-key-fn font)]
+                             (swap! fonts update key
+                                    (fn [val]
+                                      (-> (or val font)
+                                          (assoc :team-id (:id team))
+                                          (update :id #(or % (uuid/next)))
+                                          (update :data assoc (:type content) (:data content))
+                                          (update :names (fnil conj #{}) (:name content))
+                                          (dissoc :content))))))
+                         (fn [error]
+                           (js/console.error "error" error))))))
 
-    [:div.btn-primary
-     {:on-click on-click}
-     [:span "Add custom font"]
-     [:& file-uploader {:input-id "font-upload"
-                        :accept cm/str-font-types
-                        :multi true
-                        :input-ref input-ref
-                        :on-selected on-selected}]]))
+        on-upload
+        (mf/use-callback
+         (mf/deps team)
+         (fn [item]
+           (let [key (font-key-fn item)]
+             (->> (rp/mutation! :create-font-variant item)
+                  (rx/subs (fn [font]
+                             (swap! fonts dissoc key)
+                             (st/emit! (df/add-font font)))
+                           (fn [error]
+                             (js/console.log "error" error)))))))
 
-(mf/defc fonts-hero-section
-  []
-  [:div.dashboard-fonts-hero
-   [:div.desc
-    [:h2 (tr "labels.upload-custom-fonts")]
-    [:p (tr "dashboard.fonts.hero-text1")]
-    [:p (tr "dashboard.fonts.hero-text2")]]
-   [:& upload-fonts-button]])
+        on-delete
+        (mf/use-callback
+         (mf/deps team)
+         (fn [item]
+           (swap! fonts dissoc (font-key-fn item))))]
 
-(mf/defc font-item
-  [{:keys [item] :as props}]
-  [:div.table-row {:key item}
-   [:div.table-field.font-family
-    [:input {:type "text" :value "Lato"}]]
-   [:div.table-field.font-weight "300"]
-   [:div.table-field.font-style "normal"]
-   [:div.table-field.options
-    [:button.btn-primary "Upload"]
-    [:span.icon i/close]]])
+    [:div.dashboard-fonts-upload
+     [:div.dashboard-fonts-hero
+      [:div.desc
+       [:h2 (tr "labels.upload-custom-fonts")]
+       [:p (tr "dashboard.fonts.hero-text1")]
+       [:p (tr "dashboard.fonts.hero-text2")]]
 
-(mf/defc fonts-table-section
-  []
-  [:div.dashboard-fonts-table
-   [:div.table-header
-    [:div.table-field.font-family "Font Family"]
-    [:div.table-field.font-weight "Font Weight"]
-    [:div.table-field.font-style "Font Style"]
+      [:div.btn-primary
+       {:on-click on-click}
+       [:span "Add custom font"]
+       [:& file-uploader {:input-id "font-upload"
+                          :accept cm/str-font-types
+                          :multi true
+                          :input-ref input-ref
+                          :on-selected on-selected}]]]
+
+     [:*
+      (for [item (sort-by :font-family (vals @fonts))]
+        [:div.font-item.table-row {:key (:id item)}
+         [:div.table-field.family
+          [:input {:type "text"
+                   :default-value (:font-family item)}]]
+         [:div.table-field.variant
+          [:span (cm/font-weight->name (:font-weight item))]
+          (when (not= "normal" (:font-style item))
+            [:span " " (str/capital (:font-style item))])]
+         [:div.table-field.filenames
+          (for [item (:names item)]
+            [:span item])]
+
+         [:div.table-field.options
+          [:button.btn-primary {:on-click #(on-upload item)} "Upload"]
+          [:span.icon {:on-click #(on-delete item)} i/close]]])]]))
+
+(mf/defc installed-font
+  [{:keys [font] :as props}]
+  (let [open-menu? (mf/use-state false)
+        edit?      (mf/use-state false)
+        state      (mf/use-state (:font-family font))
+
+        on-change
+        (mf/use-callback
+         (mf/deps font)
+         (fn [event]
+           (reset! state (dom/get-target-val event))))
+
+        on-cancel
+        (mf/use-callback
+         (mf/deps font)
+         (fn [event]
+           (reset! edit? false)
+           (reset! state (:font-family font))))
+
+        on-delete
+        (mf/use-callback
+         (mf/deps font)
+         (st/emitf (modal/show
+                    {:type :confirm
+                     :title (tr "modals.delete-font.title")
+                     :message (tr "modals.delete-font.message")
+                     :accept-label (tr "labels.delete")
+                     :on-accept identity})))]
+
+
+    [:div.font-item.table-row {:key (:id font)}
+     [:div.table-field.family
+      (if @edit?
+        [:input {:type "text"
+                 :value @state
+                 :on-change on-change}]
+        [:span (:font-family font)])]
+
+     [:div.table-field.variant
+      [:span (cm/font-weight->name (:font-weight font))]
+      (when (not= "normal" (:font-style font))
+        [:span " " (str/capital (:font-style font))])]
+
+     [:div]
+
+     (if @edit?
+       [:div.table-field.options
+        [:button.btn-primary "Save"]
+        [:span.icon.close {:on-click on-cancel} i/close]]
+
+       [:div.table-field.options
+        [:span.icon {:on-click #(reset! open-menu? true)} i/actions]
+        [:& context-menu
+         {:on-close #(reset! open-menu? false)
+          :show @open-menu?
+          :fixed? false
+          :top -15
+          :left -115
+          :options [[(tr "labels.edit") #(reset! edit? true)]
+                    [(tr "labels.delete") identity]]}]])]))
+
+
+(mf/defc installed-fonts
+  [{:keys [team fonts] :as props}]
+  [:div.dashboard-installed-fonts
+   [:h3 (tr "label.installed-fonts")]
+   [:div.installed-fonts-header
+    [:div.table-field.family (tr "labels.font-family")]
+    [:div.table-field.variant (tr "labels.font-variant")]
+    [:div]
     [:div.table-field.search-input
-     [:input {:placeholder "Search font"}]]]
-   [:div.table-rows
-    (for [i (range 4)]
-      [:& font-item {:item i}])]])
+     [:input {:placeholder (tr "labels.search-font")}]]]
+   (for [[font-id fonts] (group-by :font-id fonts)]
+     [:div.fonts-group
+      (for [font fonts]
+        [:& installed-font {:key (:id font) :font font}])])])
+
 
 (mf/defc fonts-page
   [{:keys [team] :as props}]
-  [:*
-   [:& header {:team team :section :fonts}]
-   [:section.dashboard-container.dashboard-fonts
-    [:& fonts-hero-section]
-    [:& fonts-table-section]]])
+  (let [fonts-map (mf/deref refs/dashboard-fonts)
+        fonts     (vals fonts-map)]
 
+    (mf/use-effect
+     (mf/deps team)
+     (st/emitf (df/fetch-fonts team)))
+
+    [:*
+     [:& header {:team team :section :fonts}]
+     [:section.dashboard-container.dashboard-fonts
+      [:& fonts-upload {:team team}]
+
+      (when fonts
+        [:& installed-fonts {:team team
+                             :fonts fonts}])]]))
 (mf/defc font-providers-page
   [{:keys [team] :as props}]
   [:*

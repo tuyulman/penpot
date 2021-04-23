@@ -5,6 +5,9 @@
  :jvm-opts ["-Xmx700m" "-Xms100m" "-XX:+UseSerialGC"]
 
  :source-paths ["src", "vendor", "resources", "../common"]
+
+ :dev-http {8888 "classpath:public"}
+
  :dependencies
  [[binaryage/devtools "RELEASE"]
 

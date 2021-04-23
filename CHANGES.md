@@ -18,6 +18,7 @@
 - Fix problem with pan and space [#811](https://github.com/penpot/penpot/issues/811)
 - Fix issue when parsing exponential numbers in paths
 - Remove legacy system user and team [#843](https://github.com/penpot/penpot/issues/843)
+- Fix problems with blending modes [#837](https://github.com/penpot/penpot/issues/837)
 
 ### :arrow_up: Deps updates
 
